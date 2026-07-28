@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
         
         registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
         
-        val configFileId = getSharedPreferences("vault_access_prefs", MODE_PRIVATE)
+        val configFileId = getSharedPreferences("easypass_prefs", MODE_PRIVATE)
             .getString("config_file_id", null)
         
         if (configFileId == null) {
@@ -113,6 +113,9 @@ class MainActivity : ComponentActivity() {
         
         syncStatus = SyncStatus.SYNCING
         lifecycleScope.launch {
+            // Minimum 2s splash for brand awareness
+            val startTime = System.currentTimeMillis()
+            
             val config = sync.downloadConfig(configId)
             if (config != null) {
                 currentConfig = config
@@ -122,6 +125,10 @@ class MainActivity : ComponentActivity() {
             } else {
                 syncStatus = SyncStatus.ERROR
             }
+            
+            val duration = System.currentTimeMillis() - startTime
+            if (duration < 2000) kotlinx.coroutines.delay(2000 - duration)
+
             isInitializing = false
         }
     }
@@ -152,7 +159,7 @@ class MainActivity : ComponentActivity() {
                             syncStatus = syncStatus,
                             recentScans = recentScans,
                             onManualSync = { 
-                                getSharedPreferences("vault_access_prefs", MODE_PRIVATE).getString("config_file_id", null)?.let { loadConfig(it) }
+                                getSharedPreferences("easypass_prefs", MODE_PRIVATE).getString("config_file_id", null)?.let { loadConfig(it) }
                             },
                             onRepairCloud = { repairCloudStorage() }
                         )
@@ -178,12 +185,12 @@ class MainActivity : ComponentActivity() {
         
         globalLoadingMessage = "Repairing Cloud Data..."
         lifecycleScope.launch {
-            val lastFileId = getSharedPreferences("vault_access_prefs", MODE_PRIVATE).getString("config_file_id", "") ?: ""
+            val lastFileId = getSharedPreferences("easypass_prefs", MODE_PRIVATE).getString("config_file_id", "") ?: ""
             val parentId = sync.getParentId(lastFileId) ?: "root"
             
             val newConfigId = sync.repairMissingCloudFiles(parentId, currentConfig)
             if (newConfigId != null) {
-                getSharedPreferences("vault_access_prefs", MODE_PRIVATE).edit().putString("config_file_id", newConfigId).apply()
+                getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit().putString("config_file_id", newConfigId).apply()
                 loadConfig(newConfigId)
                 Toast.makeText(this@MainActivity, "Storage Fixed", Toast.LENGTH_SHORT).show()
             } else {

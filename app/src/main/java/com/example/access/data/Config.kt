@@ -10,7 +10,7 @@ data class Config(
 )
 
 data class BrandingConfig(
-    val organizationName: String = "VaultAccess QR",
+    val organizationName: String = "EasyPass",
     val primaryColor: String = "#006064",
     val logoFileId: String? = null,
     val fieldConfig: FieldConfig = FieldConfig()

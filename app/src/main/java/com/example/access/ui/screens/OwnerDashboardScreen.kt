@@ -86,7 +86,7 @@ fun OwnerDashboardScreen(
         ThemePalette("Ruby SaaS", "#B71C1C", "#EF5350"),
         ThemePalette("Forest Flow", "#1B5E20", "#66BB6A"),
         ThemePalette("Amber Access", "#E65100", "#FFB74D"),
-        ThemePalette("Violet Vault", "#4A148C", "#AB47BC")
+        ThemePalette("Violet Pass", "#4A148C", "#AB47BC")
     )
 
     val account = remember { GoogleSignIn.getLastSignedInAccount(context) }
@@ -354,11 +354,11 @@ private fun relocate(context: Context, newParentId: String, onSuccess: (Config) 
     val account = GoogleSignIn.getLastSignedInAccount(context) ?: return
     val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
     val sync = DriveSyncManager(context, cred)
-    val configId = context.getSharedPreferences("vault_access_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
+    val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
     (context as androidx.activity.ComponentActivity).lifecycleScope.launch {
         val newConfigId = sync.relocateFolder(configId, newParentId)
         if (newConfigId != null) {
-            context.getSharedPreferences("vault_access_prefs", Context.MODE_PRIVATE).edit().putString("config_file_id", newConfigId).apply()
+            context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).edit().putString("config_file_id", newConfigId).apply()
             sync.downloadConfig(newConfigId)?.let { onSuccess(it) }
             Toast.makeText(context, "Directory Relocated Successfully", Toast.LENGTH_SHORT).show()
         } else {
@@ -371,7 +371,7 @@ private fun updateConfigOnDrive(context: Context, config: Config, onSuccess: (Co
     val account = GoogleSignIn.getLastSignedInAccount(context) ?: return
     val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
     val sync = DriveSyncManager(context, cred)
-    val configId = context.getSharedPreferences("vault_access_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
+    val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
     (context as androidx.activity.ComponentActivity).lifecycleScope.launch { sync.updateConfigOnDrive(configId, config); onSuccess(config) }
 }
 
@@ -379,7 +379,7 @@ private suspend fun uploadCroppedLogo(context: Context, bitmap: Bitmap, onSucces
     val account = GoogleSignIn.getLastSignedInAccount(context) ?: return
     val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
     val sync = DriveSyncManager(context, cred)
-    val configId = context.getSharedPreferences("vault_access_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
+    val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
     val file = File(context.cacheDir, "logo_cropped.png")
     withContext(Dispatchers.IO) { FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
     val parentId = sync.getParentId(configId) ?: "root"

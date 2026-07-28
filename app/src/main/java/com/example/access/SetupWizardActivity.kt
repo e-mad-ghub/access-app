@@ -7,7 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -17,7 +20,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -70,9 +75,9 @@ class SetupWizardActivity : ComponentActivity() {
         if (googleAccount != null) checkDriveForExistingSetup()
 
         setContent {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F9FB))) {
                 SetupWizardScreen()
-                LoadingOverlay(isVisible = isBusy, message = "Finalizing Setup...")
+                LoadingOverlay(isVisible = isBusy, message = "Securing Your Hub...")
             }
         }
     }
@@ -83,22 +88,42 @@ class SetupWizardActivity : ComponentActivity() {
             modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("VaultAccess", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
-            Text("Business Onboarding", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            // Header Logo
+            Surface(
+                modifier = Modifier.size(64.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_pass_logo),
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("EASYPASS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text("Membership Simplified", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             
             Spacer(modifier = Modifier.height(32.dp))
 
             if (errorMessage != null) {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(text = errorMessage!!, color = MaterialTheme.colorScheme.error)
+                        Text(text = errorMessage!!, color = Color(0xFFD32F2F), style = MaterialTheme.typography.bodySmall)
                         if (errorMessage!!.contains("Access Denied")) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(12.dp))
                             Button(
                                 onClick = { signOutAndReset() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("Sign Out & Re-authorize")
+                                Text("Sign Out & Reset", fontSize = 12.sp)
                             }
                         }
                     }
@@ -107,12 +132,14 @@ class SetupWizardActivity : ComponentActivity() {
             }
 
             AnimatedContent(targetState = currentStep, label = "StepTransition") { step ->
-                when (step) {
-                    SetupStep.SIGN_IN -> SignInStep()
-                    SetupStep.PASSWORDS -> PasswordStep()
-                    SetupStep.PASTE_LINK -> PasteLinkStep()
-                    SetupStep.CONFIRMATION -> ConfirmationStep()
-                    SetupStep.RESTORE_FOUND -> RestoreFoundStep()
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    when (step) {
+                        SetupStep.SIGN_IN -> SignInStep()
+                        SetupStep.PASSWORDS -> PasswordStep()
+                        SetupStep.PASTE_LINK -> PasteLinkStep()
+                        SetupStep.CONFIRMATION -> ConfirmationStep()
+                        SetupStep.RESTORE_FOUND -> RestoreFoundStep()
+                    }
                 }
             }
         }
@@ -130,22 +157,32 @@ class SetupWizardActivity : ComponentActivity() {
     @Composable
     fun SignInStep() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Welcome to the next generation of offline-first access control.", textAlign = TextAlign.Center, color = Color.DarkGray)
-            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                "Establish your enterprise access hub in minutes.", 
+                textAlign = TextAlign.Center, 
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.DarkGray
+            )
+            Spacer(modifier = Modifier.height(48.dp))
             if (isSearching) {
-                CircularProgressIndicator()
-                Text("Scanning your Drive...", modifier = Modifier.padding(top = 16.dp), style = MaterialTheme.typography.labelSmall)
+                CircularProgressIndicator(strokeWidth = 3.dp)
+                Spacer(Modifier.height(16.dp))
+                Text("Authenticating with Cloud...", style = MaterialTheme.typography.labelSmall)
             } else {
-                Button(onClick = {
-                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                        .requestEmail()
-                        .requestScopes(Scope(DriveScopes.DRIVE)) // FULL SCOPE
-                        .build()
-                    signInLauncher.launch(GoogleSignIn.getClient(this@SetupWizardActivity, gso).signInIntent)
-                }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Button(
+                    onClick = {
+                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestEmail()
+                            .requestScopes(Scope(DriveScopes.DRIVE))
+                            .build()
+                        signInLauncher.launch(GoogleSignIn.getClient(this@SetupWizardActivity, gso).signInIntent)
+                    }, 
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
                     Icon(Icons.AutoMirrored.Filled.Login, null)
                     Spacer(Modifier.width(12.dp))
-                    Text("Get Started with Google")
+                    Text("Secure Login with Google", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -155,57 +192,61 @@ class SetupWizardActivity : ComponentActivity() {
     fun RestoreFoundStep() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.CloudDone, null, modifier = Modifier.size(64.dp), tint = Color(0xFF4CAF50))
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Welcome Back!", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("We found an existing organization setup on your Drive.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Hub Detected", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("We found an existing organization on your Drive.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(48.dp))
             
-            Button(onClick = { 
-                isBusy = true
-                finalizeRestore(existingConfigFoundId!!) 
-            }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                Text("Restore System Access")
+            Button(
+                onClick = { isBusy = true; finalizeRestore(existingConfigFoundId!!) }, 
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Restore System Data", fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = { 
-                currentStep = SetupStep.PASSWORDS 
-                existingConfigFoundId = null
-            }) { Text("Create New Organization Instead") }
+            TextButton(
+                onClick = { currentStep = SetupStep.PASSWORDS; existingConfigFoundId = null },
+                modifier = Modifier.padding(top = 8.dp)
+            ) { Text("Create New Organization Instead", fontSize = 12.sp) }
         }
     }
 
     @Composable
     fun PasswordStep() {
         Column {
-            Text("Secure Management", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Set your private keys to unlock administrative features.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Security Profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Set private keys to authorize management actions.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
             
             OutlinedTextField(
                 value = adminPass, 
                 onValueChange = { adminPass = it }, 
-                label = { Text("Admin Passcode") }, 
+                label = { Text("Admin Master Key") }, 
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = ownerPass, 
                 onValueChange = { ownerPass = it }, 
-                label = { Text("Owner Passcode") }, 
+                label = { Text("Owner Master Key") }, 
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true
             )
             
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(48.dp))
             
             Button(
                 onClick = { currentStep = SetupStep.PASTE_LINK },
                 enabled = adminPass.isNotEmpty() && ownerPass.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Text("Next: Storage Location")
+                Text("Continue to Storage", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -217,29 +258,37 @@ class SetupWizardActivity : ComponentActivity() {
 
         Column {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-            Text("Data Storage", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Paste the URL of your target Drive folder below.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Storage Configuration", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Paste your shared Google Drive folder URL.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(32.dp))
             
             OutlinedTextField(
                 value = link, 
                 onValueChange = { link = it }, 
-                label = { Text("Google Drive Folder URL") }, 
+                label = { Text("Folder Link") }, 
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                placeholder = { Text("https://drive.google.com/drive/folders/...") }
+                shape = RoundedCornerShape(14.dp),
+                placeholder = { Text("https://drive.google.com/...") }
             )
             
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "NOTE: This folder MUST be shared as 'Editor' for 'Anyone with the link' BEFORE pasting the link here.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.DarkGray,
-                lineHeight = 14.sp
-            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Folder MUST be shared as 'Editor' for 'Anyone with the link'.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(48.dp))
             
             Button(
                 onClick = {
@@ -255,7 +304,7 @@ class SetupWizardActivity : ComponentActivity() {
                                 selectedFolderName = syncManager.getFolderName(id)
                                 currentStep = SetupStep.CONFIRMATION
                             } else {
-                                errorMessage = "Access Denied: Please tap 'Sign Out' above, then sign in again and check the 'Google Drive' box to grant full access."
+                                errorMessage = "Access Denied: Re-authorize or check folder permissions."
                             }
                             isVerifying = false
                         }
@@ -264,10 +313,11 @@ class SetupWizardActivity : ComponentActivity() {
                     }
                 }, 
                 enabled = link.contains("folders/") && !isVerifying,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                else Text("Verify & Continue")
+                if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 3.dp)
+                else Text("Validate & Continue", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -275,34 +325,30 @@ class SetupWizardActivity : ComponentActivity() {
     @Composable
     fun ConfirmationStep() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.VerifiedUser, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(16.dp))
-            Text("Final Confirmation", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Your directory will be initialized in:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Text(selectedFolderName, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(16.dp)) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(16.dp))
-                    Text(
-                        "Ready to go! All files will be created in the linked folder.",
-                        style = MaterialTheme.typography.bodySmall,
-                        lineHeight = 16.sp
-                    )
+            Surface(
+                modifier = Modifier.size(80.dp),
+                shape = CircleShape,
+                color = Color(0xFFE8F5E9)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Verified, null, modifier = Modifier.size(40.dp), tint = Color(0xFF4CAF50))
                 }
             }
-
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = { 
-                isBusy = true
-                startNewSetup(selectedFolderId, adminPass, ownerPass) 
-            }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                Text("Create My Directory")
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Ready for Launch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+            Text("Destination Verified:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text(selectedFolderName.uppercase(), fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.sp)
+            
+            Spacer(modifier = Modifier.height(48.dp))
+            
+            Button(
+                onClick = { isBusy = true; startNewSetup(selectedFolderId, adminPass, ownerPass) }, 
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Initialize Organization", fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = { currentStep = SetupStep.PASTE_LINK }) { Text("Change Location") }
+            TextButton(onClick = { currentStep = SetupStep.PASTE_LINK }) { Text("Choose Different Location", fontSize = 12.sp) }
         }
     }
 
@@ -313,9 +359,13 @@ class SetupWizardActivity : ComponentActivity() {
 
     private fun getCredential(): GoogleAccountCredential {
         val account = googleAccount!!
-        val credential = GoogleAccountCredential.usingOAuth2(this, listOf(DriveScopes.DRIVE)) // FULL SCOPE
+        val credential = GoogleAccountCredential.usingOAuth2(this, listOf(DriveScopes.DRIVE))
         credential.selectedAccount = account.account
         return credential
+    }
+
+    private fun loadFolders(id: String, name: String) {
+        // ... handled via links now
     }
 
     private fun checkDriveForExistingSetup() {
@@ -324,11 +374,7 @@ class SetupWizardActivity : ComponentActivity() {
             try {
                 val syncManager = DriveSyncManager(this@SetupWizardActivity, getCredential())
                 existingConfigFoundId = syncManager.findExistingConfigId()
-                if (existingConfigFoundId != null) {
-                    currentStep = SetupStep.RESTORE_FOUND
-                } else {
-                    currentStep = SetupStep.PASSWORDS
-                }
+                currentStep = if (existingConfigFoundId != null) SetupStep.RESTORE_FOUND else SetupStep.PASSWORDS
             } catch (e: Exception) {
                 errorMessage = e.message
                 currentStep = SetupStep.SIGN_IN
@@ -339,7 +385,7 @@ class SetupWizardActivity : ComponentActivity() {
     }
 
     private fun finalizeRestore(configId: String) {
-        getSharedPreferences("vault_access_prefs", MODE_PRIVATE).edit()
+        getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit()
             .putString("config_file_id", configId).apply()
         startActivity(Intent(this, MainActivity::class.java))
         finish()

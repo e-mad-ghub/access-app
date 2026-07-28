@@ -68,14 +68,14 @@ fun AdminSettingsScreen(config: Config) {
                 Text("Invite Staff Member", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text("Allow others to access this Member Directory by sharing a secure setup link.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 
-                val configId = context.getSharedPreferences("vault_access_prefs", Context.MODE_PRIVATE).getString("config_file_id", "")
+                val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", "")
                 
                 Button(
                     onClick = {
-                        val inviteUrl = "vaultaccess://join?configId=$configId"
+                        val inviteUrl = "easypass://join?configId=$configId"
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, "Join our team on VaultAccess: $inviteUrl")
+                            putExtra(Intent.EXTRA_TEXT, "Join our team on EasyPass: $inviteUrl")
                         }
                         context.startActivity(Intent.createChooser(intent, "Invite Staff"))
                     },

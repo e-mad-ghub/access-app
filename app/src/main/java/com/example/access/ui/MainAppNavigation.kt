@@ -11,11 +11,14 @@ import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.example.access.MainScannerViewModel
 import com.example.access.SyncStatus
 import com.example.access.data.Config
 import com.example.access.data.RecentScan
-import com.example.access.ui.components.VaultTopBar
+import com.example.access.ui.components.PassTopBar
 import com.example.access.ui.screens.*
 import com.example.access.util.SessionManager
 
@@ -52,7 +55,7 @@ fun MainAppNavigation(
 
     Scaffold(
         topBar = {
-            VaultTopBar(
+            PassTopBar(
                 orgName = currentConfig.branding.organizationName,
                 sessionManager = sessionManager,
                 onSessionChanged = { 
@@ -62,13 +65,33 @@ fun MainAppNavigation(
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = Color.White,
+                tonalElevation = 8.dp
+            ) {
                 tabs.forEachIndexed { index, tab ->
+                    val isSelected = selectedTab == index
                     NavigationBarItem(
-                        icon = { Icon(tab.icon, contentDescription = tab.title) },
-                        label = { Text(tab.title) },
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index }
+                        icon = { 
+                            Icon(
+                                tab.icon, 
+                                contentDescription = tab.title,
+                                tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
+                            ) 
+                        },
+                        label = { 
+                            Text(
+                                tab.title,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
+                            ) 
+                        },
+                        selected = isSelected,
+                        onClick = { selectedTab = index },
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        )
                     )
                 }
             }

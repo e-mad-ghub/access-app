@@ -1,5 +1,6 @@
 package com.example.access.ui.components
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,7 +26,7 @@ import com.example.access.ui.theme.LocalBranding
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VaultTopBar(
+fun PassTopBar(
     orgName: String,
     sessionManager: SessionManager,
     onSessionChanged: () -> Unit
@@ -65,29 +66,21 @@ fun VaultTopBar(
                             model = "https://lh3.googleusercontent.com/u/0/d/$logoId",
                             contentDescription = null,
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(24.dp)
                                 .clip(CircleShape)
                         )
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(10.dp))
                     }
                     Text(
-                        text = orgName.uppercase(),
-                        style = MaterialTheme.typography.labelLarge,
+                        text = orgName,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 2.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             },
-            actions = {
-                if (activeRole == SessionManager.ROLE_SCANNER) {
-                    IconButton(onClick = { /* Tooltip or Info */ }) {
-                        Icon(Icons.Default.Security, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp))
-                    }
-                }
-            },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
+                containerColor = Color.White,
                 titleContentColor = MaterialTheme.colorScheme.onSurface
             )
         )
@@ -111,31 +104,31 @@ fun VaultTopBar(
 @Composable
 fun ElevatedBanner(role: String, onEndSession: () -> Unit) {
     Surface(
-        color = Color(0xFF263238), // Dark sleek Slate
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(6.dp).background(Color.Red, CircleShape))
-                Spacer(modifier = Modifier.width(12.dp))
+                Box(modifier = Modifier.size(6.dp).background(Color.White, CircleShape))
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "MANAGEMENT MODE: ${role.uppercase()}",
+                    text = "MANAGEMENT: ${role.uppercase()}",
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 9.sp,
                     letterSpacing = 1.sp
                 )
             }
             TextButton(
                 onClick = onEndSession,
-                modifier = Modifier.height(28.dp),
+                modifier = Modifier.height(24.dp),
                 contentPadding = PaddingValues(0.dp)
             ) {
-                Text("EXIT", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text("EXIT", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -146,22 +139,22 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var password by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Elevate Permissions", fontWeight = FontWeight.Black) },
+        title = { Text("Unlock Features", fontWeight = FontWeight.Black) },
         text = {
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Enter Management Key") },
+                label = { Text("Security Key") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(12.dp),
                 visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
             )
         },
         confirmButton = { 
             Button(
                 onClick = { onConfirm(password) },
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("Confirm") } 
+                shape = RoundedCornerShape(10.dp)
+            ) { Text("Unlock") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

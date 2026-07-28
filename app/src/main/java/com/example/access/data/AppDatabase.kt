@@ -18,7 +18,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "vault_access_db"
+                    "easypass_db"
                 )
                 .fallbackToDestructiveMigration(true)
                 .build()

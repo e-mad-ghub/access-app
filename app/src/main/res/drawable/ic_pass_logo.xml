@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <group
+        android:scaleX="0.8"
+        android:scaleY="0.8"
+        android:translateX="10"
+        android:translateY="10">
+        <!-- QR Bracket (The Tech) -->
+        <path
+            android:fillColor="#00BFA5"
+            android:pathData="M20,20 H40 V25 H25 V45 H20 V20 Z M60,20 H80 V45 H75 V25 H60 V20 Z M20,60 H25 V75 H40 V80 H20 V60 Z M75,60 H80 V80 H60 V75 H75 V60 Z" />
+        <!-- Success Checkmark (The Easy Part) -->
+        <path
+            android:fillColor="#00BFA5"
+            android:pathData="M35,50 L45,60 L70,35 L75,40 L45,70 L30,55 Z" />
+        <!-- Simple Person (The Member) -->
+        <path
+            android:fillColor="#006064"
+            android:pathData="M50,45 C54.14,45 57.5,41.86 57.5,37.5 C57.5,33.14 54.14,30 50,30 C45.86,30 42.5,33.14 42.5,37.5 C42.5,41.86 45.86,45 50,45 Z M50,48 C42.5,48 35,51.75 35,55.5 V60 H65 V55.5 C65,51.75 57.5,48 50,48 Z" />
+    </group>
+</vector>

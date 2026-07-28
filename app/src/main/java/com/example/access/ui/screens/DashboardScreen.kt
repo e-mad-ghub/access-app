@@ -53,7 +53,7 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(primaryColor, primaryColor.copy(alpha = 0.8f))
+                            listOf(primaryColor, primaryColor.copy(alpha = 0.85f), Color(0xFF00363a))
                         )
                     )
             )

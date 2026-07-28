@@ -27,7 +27,7 @@ class DriveSyncManager(private val context: Context, credential: GoogleAccountCr
         NetHttpTransport(),
         GsonFactory.getDefaultInstance(),
         credential
-    ).setApplicationName("VaultAccess QR").build()
+    ).setApplicationName("EasyPass").build()
 
     private val db = AppDatabase.getDatabase(context)
     private val gson = Gson()
@@ -172,7 +172,7 @@ class DriveSyncManager(private val context: Context, credential: GoogleAccountCr
                 val row = sheet.createRow(i + 1)
                 row.createCell(0).setCellValue(m.memberId); row.createCell(1).setCellValue(m.fullName); row.createCell(2).setCellValue(m.status); row.createCell(3).setCellValue(m.qrCodeHash); row.createCell(4).setCellValue(m.lastUpdated); row.createCell(5).setCellValue(m.phone ?: ""); row.createCell(6).setCellValue(m.email ?: ""); row.createCell(7).setCellValue(m.address ?: ""); row.createCell(8).setCellValue(m.notes ?: "")
             }
-            val file = File(context.cacheDir, "VaultAccess_Backup.xlsx")
+            val file = File(context.cacheDir, "EasyPass_Backup.xlsx")
             FileOutputStream(file).use { workbook.write(it) }
             return@withContext file
         } catch (e: Exception) { null }
