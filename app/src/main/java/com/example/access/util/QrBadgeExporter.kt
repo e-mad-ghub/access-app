@@ -49,8 +49,8 @@ object QrBadgeExporter {
         canvas.drawText("OFFICIAL DIGITAL PASS", 190f, 170f, paint)
 
         // Main QR Code
-        val qrBitmap = SecurityUtils.generateQRCodeBitmap(member.qrCodeHash, 550)
-        canvas.drawBitmap(qrBitmap, (width - 550f) / 2, 350f, null)
+        val qrBitmap = SecurityUtils.generateQRCode(member.qrCodeHash, 550)
+        qrBitmap?.let { canvas.drawBitmap(it, (width - 550f) / 2, 350f, null) }
 
         // Member Details
         paint.color = Color.BLACK

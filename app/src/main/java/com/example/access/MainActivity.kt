@@ -90,8 +90,11 @@ class MainActivity : ComponentActivity() {
         val configFileId = getSharedPreferences("easypass_prefs", MODE_PRIVATE)
             .getString("config_file_id", null)
         
-        if (configFileId == null) {
-            startActivity(Intent(this, SetupWizardActivity::class.java))
+        val intentUri = intent.data
+        if (configFileId == null || (intentUri != null && intentUri.host == "join")) {
+            val setupIntent = Intent(this, SetupWizardActivity::class.java)
+            if (intentUri != null) setupIntent.data = intentUri
+            startActivity(setupIntent)
             finish()
             return
         }

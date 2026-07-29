@@ -3,6 +3,7 @@ package com.example.access
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
@@ -20,10 +22,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,7 +45,7 @@ import kotlinx.coroutines.launch
 
 class SetupWizardActivity : ComponentActivity() {
 
-    enum class SetupStep { SIGN_IN, PASSWORDS, PASTE_LINK, CONFIRMATION, RESTORE_FOUND }
+    enum class SetupStep { SIGN_IN, PASSWORDS, PASTE_LINK, CONFIRMATION, RESTORE_FOUND, ENTER_JOIN_PIN }
 
     private var googleAccount by mutableStateOf<GoogleSignInAccount?>(null)
     private var currentStep by mutableStateOf(SetupStep.SIGN_IN)
@@ -56,6 +59,8 @@ class SetupWizardActivity : ComponentActivity() {
 
     private var adminPass by mutableStateOf("")
     private var ownerPass by mutableStateOf("")
+
+    private var encryptedInviteKey by mutableStateOf<String?>(null)
 
     private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -72,12 +77,19 @@ class SetupWizardActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         googleAccount = GoogleSignIn.getLastSignedInAccount(this)
+        
+        // Detect Deep Link
+        val data = intent.data
+        if (data != null && data.host == "join") {
+            encryptedInviteKey = data.getQueryParameter("key")
+        }
+
         if (googleAccount != null) checkDriveForExistingSetup()
 
         setContent {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F9FB))) {
                 SetupWizardScreen()
-                LoadingOverlay(isVisible = isBusy, message = "Securing Your Hub...")
+                LoadingOverlay(isVisible = isBusy, message = "Securing Your Access...")
             }
         }
     }
@@ -139,6 +151,7 @@ class SetupWizardActivity : ComponentActivity() {
                         SetupStep.PASTE_LINK -> PasteLinkStep()
                         SetupStep.CONFIRMATION -> ConfirmationStep()
                         SetupStep.RESTORE_FOUND -> RestoreFoundStep()
+                        SetupStep.ENTER_JOIN_PIN -> EnterJoinPinStep()
                     }
                 }
             }
@@ -193,7 +206,7 @@ class SetupWizardActivity : ComponentActivity() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.CloudDone, null, modifier = Modifier.size(64.dp), tint = Color(0xFF4CAF50))
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Hub Detected", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Vault Detected", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("We found an existing organization on your Drive.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             
             Spacer(modifier = Modifier.height(48.dp))
@@ -209,6 +222,63 @@ class SetupWizardActivity : ComponentActivity() {
                 onClick = { currentStep = SetupStep.PASSWORDS; existingConfigFoundId = null },
                 modifier = Modifier.padding(top = 8.dp)
             ) { Text("Create New Organization Instead", fontSize = 12.sp) }
+        }
+    }
+
+    @Composable
+    fun EnterJoinPinStep() {
+        var pin by remember { mutableStateOf("") }
+        var isVerifying by remember { mutableStateOf(false) }
+
+        Column {
+            Text("Join Organization", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Enter the 4-digit PIN provided by your Admin to unlock the secure connection.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            OutlinedTextField(
+                value = pin,
+                onValueChange = { if (it.length <= 4) pin = it },
+                label = { Text("Invitation PIN") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true
+            )
+            
+            Spacer(modifier = Modifier.height(48.dp))
+            
+            Button(
+                onClick = {
+                    isVerifying = true
+                    errorMessage = null
+                    val decryptedId = SecurityUtils.decryptInvite(encryptedInviteKey!!, pin)
+                    if (decryptedId != null) {
+                        lifecycleScope.launch {
+                            val syncManager = DriveSyncManager(this@SetupWizardActivity, getCredential())
+                            val isEditable = syncManager.verifyFolderPermissions(decryptedId)
+                            if (isEditable) {
+                                selectedFolderId = decryptedId
+                                selectedFolderName = syncManager.getFolderName(decryptedId)
+                                currentStep = SetupStep.CONFIRMATION
+                            } else {
+                                errorMessage = "Access Denied: You must be added as an 'Editor' to the Drive folder."
+                            }
+                            isVerifying = false
+                        }
+                    } else {
+                        errorMessage = "Incorrect PIN. Please try again."
+                        isVerifying = false
+                    }
+                },
+                enabled = pin.length == 4 && !isVerifying,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                else Text("Unlock & Join", fontWeight = FontWeight.Bold)
+            }
         }
     }
 
@@ -348,7 +418,10 @@ class SetupWizardActivity : ComponentActivity() {
             ) {
                 Text("Initialize Organization", fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = { currentStep = SetupStep.PASTE_LINK }) { Text("Choose Different Location", fontSize = 12.sp) }
+            TextButton(onClick = { 
+                if (encryptedInviteKey != null) currentStep = SetupStep.ENTER_JOIN_PIN
+                else currentStep = SetupStep.PASTE_LINK 
+            }) { Text("Choose Different Location", fontSize = 12.sp) }
         }
     }
 
@@ -364,17 +437,20 @@ class SetupWizardActivity : ComponentActivity() {
         return credential
     }
 
-    private fun loadFolders(id: String, name: String) {
-        // ... handled via links now
-    }
-
     private fun checkDriveForExistingSetup() {
         isSearching = true
         lifecycleScope.launch {
             try {
                 val syncManager = DriveSyncManager(this@SetupWizardActivity, getCredential())
                 existingConfigFoundId = syncManager.findExistingConfigId()
-                currentStep = if (existingConfigFoundId != null) SetupStep.RESTORE_FOUND else SetupStep.PASSWORDS
+                
+                if (encryptedInviteKey != null) {
+                    currentStep = SetupStep.ENTER_JOIN_PIN
+                } else if (existingConfigFoundId != null) {
+                    currentStep = SetupStep.RESTORE_FOUND
+                } else {
+                    currentStep = SetupStep.PASSWORDS
+                }
             } catch (e: Exception) {
                 errorMessage = e.message
                 currentStep = SetupStep.SIGN_IN
