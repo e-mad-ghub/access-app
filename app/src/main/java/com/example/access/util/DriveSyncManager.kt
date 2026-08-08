@@ -13,6 +13,7 @@ import com.google.api.services.drive.Drive
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.apache.poi.ss.usermodel.DataFormatter
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.ByteArrayInputStream
@@ -22,6 +23,7 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
+import java.time.Instant
 import java.util.*
 
 class DriveSyncManager(
@@ -65,6 +67,57 @@ class DriveSyncManager(
     }
 
     private val EXCEL_COLUMNS = listOf("MemberID", "FullName", "Status", "QRCodeHash", "LastUpdated", "Phone", "Email", "Address", "Notes")
+    
+    /**
+     * Parses an Excel date string and converts it to ISO-8601 format.
+     * Excel cells can contain various date formats, numeric Excel serial dates,
+     * or already-formatted ISO strings. This function handles:
+     * 1. ISO-8601 strings (yyyy-MM-dd'T'HH:mm:ss'Z') - return as-is
+     * 2. Excel numeric serial dates (e.g., "44927" = 2023-01-01)
+     * 3. Various date string formats via lenient parsing
+     */
+    private fun parseExcelDate(dateStr: String): String {
+        if (dateStr.isBlank()) return Instant.now().toString()
+        
+        // Check if it's already an ISO-8601 format (like 2023-01-01T12:00:00Z)
+        val isoPattern = Regex("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z?\$")
+        if (isoPattern.matches(dateStr)) return dateStr
+        
+        // Try to parse as Excel serial number (days since 1900-01-01)
+        try {
+            val excelSerial = dateStr.toDouble()
+            // Excel's epoch is 1899-12-30 (with 1900 incorrectly treated as leap year)
+            val daysSince1899 = excelSerial - 1.0 // Adjust for Excel bug (1900-02-29)
+            val millis = (daysSince1899 * 86400000).toLong()
+            val date = Date(millis)
+            return SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(date)
+        } catch (_: NumberFormatException) {
+            // Not a numeric Excel serial, try parsing as date string
+            val dateFormats = listOf(
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd",
+                "MM/dd/yyyy HH:mm:ss",
+                "MM/dd/yyyy",
+                "dd/MM/yyyy HH:mm:ss",
+                "dd/MM/yyyy",
+                "EEE MMM dd HH:mm:ss z yyyy" // Default Date.toString() format
+            )
+            
+            for (format in dateFormats) {
+                try {
+                    val parser = SimpleDateFormat(format, Locale.US)
+                    parser.isLenient = true
+                    val date = parser.parse(dateStr)
+                    return SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(date)
+                } catch (_: Exception) {
+                    continue
+                }
+            }
+            
+            // If all parsing fails, return current timestamp
+            return Instant.now().toString()
+        }
+    }
 
     suspend fun getFolderName(fileId: String): String = withContext(Dispatchers.IO) {
         try {
@@ -152,28 +205,51 @@ class DriveSyncManager(
     suspend fun downloadAndParseExcel(fileId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val bytes = downloadFileBytes(fileId) ?: return@withContext false
-            val workbook = WorkbookFactory.create(ByteArrayInputStream(bytes))
-            val sheet = workbook.getSheetAt(0)
-            val members = mutableListOf<Member>()
-            for (i in 1..sheet.lastRowNum) {
-                val row = sheet.getRow(i) ?: continue
-                members.add(Member(
-                    memberId = row.getCell(0)?.toString()?.substringBefore(".") ?: "",
-                    fullName = row.getCell(1)?.toString() ?: "",
-                    status = row.getCell(2)?.toString() ?: "Active",
-                    qrCodeHash = row.getCell(3)?.toString() ?: "",
-                    lastUpdated = row.getCell(4)?.toString() ?: "",
-                    phone = row.getCell(5)?.toString()?.takeIf { it != "null" && it.isNotBlank() },
-                    email = row.getCell(6)?.toString()?.takeIf { it != "null" && it.isNotBlank() },
-                    address = row.getCell(7)?.toString()?.takeIf { it != "null" && it.isNotBlank() },
-                    notes = row.getCell(8)?.toString()?.takeIf { it != "null" && it.isNotBlank() }
-                ))
+            val members = WorkbookFactory.create(ByteArrayInputStream(bytes)).use { workbook ->
+                val sheet = workbook.getSheetAt(0)
+                val formatter = DataFormatter(Locale.US)
+                val parsed = mutableListOf<Member>()
+                val seenIds = mutableSetOf<String>()
+
+                for (i in 1..sheet.lastRowNum) {
+                    val row = sheet.getRow(i) ?: continue
+                    fun cell(index: Int): String =
+                        formatter.formatCellValue(row.getCell(index)).trim()
+
+                    val memberId = cell(0)
+                    val fullName = cell(1)
+                    val qrToken = cell(3)
+
+                    // Ignore truly empty spreadsheet rows, but reject malformed
+                    // member rows so a bad cloud file cannot wipe/poison the cache.
+                    if (memberId.isBlank() && fullName.isBlank() && qrToken.isBlank()) continue
+                    require(memberId.isNotBlank()) { "Missing MemberID at Excel row ${i + 1}" }
+                    require(fullName.isNotBlank()) { "Missing FullName at Excel row ${i + 1}" }
+                    require(qrToken.isNotBlank()) { "Missing QRCodeHash at Excel row ${i + 1}" }
+                    require(seenIds.add(memberId)) { "Duplicate MemberID '$memberId' at Excel row ${i + 1}" }
+
+                    parsed += Member(
+                        memberId = memberId,
+                        fullName = fullName,
+                        status = cell(2).ifBlank { "Active" },
+                        qrCodeHash = qrToken,
+                        lastUpdated = parseExcelDate(cell(4)),
+                        phone = cell(5).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
+                        email = cell(6).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
+                        address = cell(7).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
+                        notes = cell(8).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
+                    )
+                }
+                parsed
             }
-            members.forEach { db.memberDao().insertMember(it) }
-            return@withContext true
-        } catch (e: Exception) { 
+
+            // Cloud Excel is authoritative. A transaction removes members no
+            // longer present, preventing revoked/deleted badges from staying valid.
+            db.memberDao().replaceAllMembers(members)
+            true
+        } catch (e: Exception) {
             Log.e("DriveSync", "downloadAndParseExcel failed", e)
-            return@withContext false 
+            false
         }
     }
 
@@ -208,7 +284,7 @@ class DriveSyncManager(
             val excelFile = File(context.cacheDir, "initial_db.xlsx")
             FileOutputStream(excelFile).use { workbook.write(it) }
             val uploadedExcel = drive.files().create(com.google.api.services.drive.model.File().apply { name = "database.xlsx"; parents = listOf(folderId) }, FileContent("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", excelFile)).setFields("id").execute()
-            val config = Config(activeDatabaseId = uploadedExcel.id, roleHashes = mapOf("admin" to adminHash, "owner" to ownerHash), lastUpdated = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date()))
+            val config = Config(activeDatabaseId = uploadedExcel.id, roleHashes = mapOf("admin" to adminHash, "owner" to ownerHash), lastUpdated = Instant.now().toString())
             val configFile = File(context.cacheDir, "initial_config.json").apply { writeText(gson.toJson(config)) }
             val uploadedConfig = drive.files().create(com.google.api.services.drive.model.File().apply { name = "config.json"; parents = listOf(folderId) }, FileContent("application/json", configFile)).setFields("id").execute()
             return@withContext uploadedConfig.id
@@ -232,20 +308,57 @@ class DriveSyncManager(
             val file = File(context.cacheDir, "EasyPass_Backup.xlsx")
             FileOutputStream(file).use { workbook.write(it) }
             return@withContext file
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("DriveSync", "exportLocalBackup failed", e)
+            null 
+        }
     }
 
-    suspend fun importLocalSheet(inputStream: java.io.InputStream) = withContext(Dispatchers.IO) {
+    suspend fun importLocalSheet(inputStream: java.io.InputStream): Boolean = withContext(Dispatchers.IO) {
         try {
-            val workbook = WorkbookFactory.create(inputStream)
-            val sheet = workbook.getSheetAt(0)
-            val members = mutableListOf<Member>()
-            for (i in 1..sheet.lastRowNum) {
-                val row = sheet.getRow(i) ?: continue
-                members.add(Member(memberId = row.getCell(0)?.toString()?.substringBefore(".") ?: UUID.randomUUID().toString().take(8), fullName = row.getCell(1)?.toString() ?: "Imported User", status = row.getCell(2)?.toString() ?: "Active", qrCodeHash = row.getCell(3)?.toString() ?: SecurityUtils.generateSecureQRHash(UUID.randomUUID().toString()), lastUpdated = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()), phone = row.getCell(5)?.toString(), email = row.getCell(6)?.toString(), address = row.getCell(7)?.toString(), notes = row.getCell(8)?.toString()))
+            val members = WorkbookFactory.create(inputStream).use { workbook ->
+                val sheet = workbook.getSheetAt(0)
+                val formatter = DataFormatter(Locale.US)
+                val parsed = mutableListOf<Member>()
+                val seenIds = mutableSetOf<String>()
+
+                for (i in 1..sheet.lastRowNum) {
+                    val row = sheet.getRow(i) ?: continue
+                    fun cell(index: Int): String =
+                        formatter.formatCellValue(row.getCell(index)).trim()
+
+                    val rawId = cell(0)
+                    val fullName = cell(1)
+                    val rawToken = cell(3)
+                    if (rawId.isBlank() && fullName.isBlank() && rawToken.isBlank()) continue
+
+                    val memberId = rawId.ifBlank {
+                        "M-${UUID.randomUUID().toString().replace("-", "").uppercase()}"
+                    }
+                    require(seenIds.add(memberId)) {
+                        "Duplicate MemberID '$memberId' at Excel row ${i + 1}"
+                    }
+
+                    parsed += Member(
+                        memberId = memberId,
+                        fullName = fullName.ifBlank { "Imported User" },
+                        status = cell(2).ifBlank { "Active" },
+                        qrCodeHash = rawToken.ifBlank { SecurityUtils.generateSecureQrToken() },
+                        lastUpdated = parseExcelDate(cell(4)),
+                        phone = cell(5).takeIf(String::isNotBlank),
+                        email = cell(6).takeIf(String::isNotBlank),
+                        address = cell(7).takeIf(String::isNotBlank),
+                        notes = cell(8).takeIf(String::isNotBlank)
+                    )
+                }
+                parsed
             }
-            members.forEach { db.memberDao().insertMember(it) }
-        } catch (e: Exception) { }
+            db.memberDao().replaceAllMembers(members)
+            true
+        } catch (e: Exception) {
+            Log.e("DriveSync", "importLocalSheet failed", e)
+            false
+        }
     }
 
     suspend fun relocateFolder(oldConfigId: String, targetFolderId: String): String? = withContext(Dispatchers.IO) {
@@ -253,30 +366,59 @@ class DriveSyncManager(
             val oldConfig = downloadConfig(oldConfigId) ?: return@withContext null
             val newDb = drive.files().copy(oldConfig.activeDatabaseId, com.google.api.services.drive.model.File().apply { name = "database.xlsx"; parents = listOf(targetFolderId) }).execute()
             var newLogoId: String? = null
-            oldConfig.branding.logoFileId?.let { try { newLogoId = drive.files().copy(it, com.google.api.services.drive.model.File().apply { name = "logo.png"; parents = listOf(targetFolderId) }).execute().id } catch (e: Exception) { } }
+            oldConfig.branding.logoFileId?.let { 
+                try { 
+                    newLogoId = drive.files().copy(it, com.google.api.services.drive.model.File().apply { name = "logo.png"; parents = listOf(targetFolderId) }).execute().id 
+                } catch (e: Exception) { 
+                    Log.e("DriveSync", "Failed to copy logo file $it to new folder", e)
+                } 
+            }
             val newConfig = oldConfig.copy(activeDatabaseId = newDb.id, branding = oldConfig.branding.copy(logoFileId = newLogoId))
             val tempConfigFile = File(context.cacheDir, "new_config.json").apply { writeText(gson.toJson(newConfig)) }
             val uploadedNewConfigId = drive.files().create(com.google.api.services.drive.model.File().apply { name = "config.json"; parents = listOf(targetFolderId) }, FileContent("application/json", tempConfigFile)).setFields("id").execute().id
-            try { drive.files().delete(oldConfigId).execute() } catch(e: Exception) {}
-            try { drive.files().delete(oldConfig.activeDatabaseId).execute() } catch(e: Exception) {}
-            oldConfig.branding.logoFileId?.let { try { drive.files().delete(it).execute() } catch(e: Exception) {} }
+            try { drive.files().delete(oldConfigId).execute() } catch(e: Exception) {
+                Log.e("DriveSync", "Failed to delete old config file $oldConfigId", e)
+            }
+            try { drive.files().delete(oldConfig.activeDatabaseId).execute() } catch(e: Exception) {
+                Log.e("DriveSync", "Failed to delete old database file ${oldConfig.activeDatabaseId}", e)
+            }
+            oldConfig.branding.logoFileId?.let { 
+                try { drive.files().delete(it).execute() } catch(e: Exception) {
+                    Log.e("DriveSync", "Failed to delete old logo file $it", e)
+                }
+            }
             return@withContext uploadedNewConfigId
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("DriveSync", "relocateFolder failed for config $oldConfigId to folder $targetFolderId", e)
+            null 
+        }
     }
 
     suspend fun getParentId(fileId: String): String? = withContext(Dispatchers.IO) {
         try {
             val file = drive.files().get(fileId).setFields("parents").execute()
             return@withContext file.parents?.firstOrNull()
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("DriveSync", "getParentId failed for file $fileId", e)
+            null 
+        }
     }
 
     suspend fun uploadLogo(folderId: String, file: File, existingFileId: String? = null): String? = withContext(Dispatchers.IO) {
         try {
             val content = FileContent("image/png", file)
-            if (existingFileId != null) { try { return@withContext drive.files().update(existingFileId, null, content).setFields("id").execute().id } catch (e: Exception) { } }
+            if (existingFileId != null) { 
+                try { 
+                    return@withContext drive.files().update(existingFileId, null, content).setFields("id").execute().id 
+                } catch (e: Exception) { 
+                    Log.e("DriveSync", "Failed to update existing logo file $existingFileId", e)
+                } 
+            }
             return@withContext drive.files().create(com.google.api.services.drive.model.File().apply { name = "logo.png"; parents = listOf(folderId) }, content).setFields("id").execute().id
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("DriveSync", "uploadLogo failed for folder $folderId", e)
+            null 
+        }
     }
 
     companion object {

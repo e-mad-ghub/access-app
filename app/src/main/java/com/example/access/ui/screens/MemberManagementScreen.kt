@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.example.access.data.AppDatabase
 import com.example.access.data.Config
 import com.example.access.data.Member
+import com.example.access.data.MemberDao
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.QrBadgeExporter
 import com.example.access.util.SecurityUtils
@@ -33,6 +34,8 @@ import com.google.api.services.drive.DriveScopes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.util.UUID
 
 @Composable
 fun MemberManagementScreen(config: Config) {
@@ -104,11 +107,21 @@ fun MemberManagementScreen(config: Config) {
         MemberEditDialog(config = config, onDismiss = { showAddDialog = false }, existingMembers = members) { name, p, e, a, nt ->
             isBusy = true
             scope.launch {
-                val id = "M" + (1000..9999).random()
-                val hash = SecurityUtils.generateSecureQRHash(id)
-                val newM = Member(id, name, "Active", hash, System.currentTimeMillis().toString(), p, e, a, nt)
                 withContext(Dispatchers.IO) {
-                    db.memberDao().insertMember(newM)
+                    val id = generateUniqueMemberId(db.memberDao())
+                    val token = SecurityUtils.generateSecureQrToken()
+                    val newMember = Member(
+                        memberId = id,
+                        fullName = name,
+                        status = "Active",
+                        qrCodeHash = token,
+                        lastUpdated = Instant.now().toString(),
+                        phone = p,
+                        email = e,
+                        address = a,
+                        notes = nt
+                    )
+                    db.memberDao().insertMember(newMember)
                     val acc = GoogleSignIn.getLastSignedInAccount(context)
                     if (acc != null) {
                         val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
@@ -127,7 +140,7 @@ fun MemberManagementScreen(config: Config) {
             val m = memberToEdit!!
             scope.launch {
                 withContext(Dispatchers.IO) {
-                    db.memberDao().insertMember(Member(m.memberId, name, m.status, m.qrCodeHash, System.currentTimeMillis().toString(), p, e, a, nt))
+                    db.memberDao().insertMember(Member(m.memberId, name, m.status, m.qrCodeHash, Instant.now().toString(), p, e, a, nt))
                     val acc = GoogleSignIn.getLastSignedInAccount(context)
                     if (acc != null) {
                         val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
@@ -250,6 +263,16 @@ fun StatusPill(status: String) {
             Spacer(Modifier.width(6.dp))
             Text(status.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Black, color = if (active) Color(0xFF065F46) else Color.Gray)
         }
+    }
+}
+
+private suspend fun generateUniqueMemberId(dao: MemberDao): String {
+    while (true) {
+        // 96 random bits keeps IDs compact while making collisions negligible;
+        // the database check makes collision handling explicit rather than relying
+        // on REPLACE, which could silently overwrite another member.
+        val candidate = "M-${UUID.randomUUID().toString().replace("-", "").take(24).uppercase()}"
+        if (!dao.memberIdExists(candidate)) return candidate
     }
 }
 

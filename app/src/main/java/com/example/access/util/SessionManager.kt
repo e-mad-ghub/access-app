@@ -58,20 +58,20 @@ class SessionManager(val context: Context) {
             Log.e(TAG, "checkPassword failed: currentConfig is null")
             return null
         }
-        val hash = SecurityUtils.hashPassword(password)
-        Log.d(TAG, "Checking password. Input hash: $hash")
-        
+
+        // Never log passwords or derived password material. verifyPassword supports
+        // both current salted PBKDF2 values and legacy SHA-256 organizations.
         return when {
-            hash == config.roleHashes["owner"] -> {
-                Log.d(TAG, "Match found: OWNER")
+            SecurityUtils.verifyPassword(password, config.roleHashes["owner"]) -> {
+                Log.d(TAG, "Owner credential verified")
                 ROLE_OWNER
             }
-            hash == config.roleHashes["admin"] -> {
-                Log.d(TAG, "Match found: ADMIN")
+            SecurityUtils.verifyPassword(password, config.roleHashes["admin"]) -> {
+                Log.d(TAG, "Admin credential verified")
                 ROLE_ADMIN
             }
             else -> {
-                Log.d(TAG, "No match found for input hash.")
+                Log.d(TAG, "Credential verification failed")
                 null
             }
         }
