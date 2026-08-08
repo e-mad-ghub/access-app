@@ -29,10 +29,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <intent-filter android:label="Join Organization">
+            <intent-filter android:label="Join EasyPass">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="easyapps-solutions.com" android:pathPrefix="/join" />
                 <data android:scheme="easypass" android:host="join" />
             </intent-filter>
         </activity>

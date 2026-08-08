@@ -45,10 +45,10 @@ import kotlinx.coroutines.launch
 
 class SetupWizardActivity : ComponentActivity() {
 
-    enum class SetupStep { SIGN_IN, PASSWORDS, PASTE_LINK, CONFIRMATION, RESTORE_FOUND, ENTER_JOIN_PIN }
+    enum class SetupStep { SIGN_IN_OPTION, PASSWORDS, PASTE_LINK, CONFIRMATION, RESTORE_FOUND, ENTER_JOIN_PIN }
 
     private var googleAccount by mutableStateOf<GoogleSignInAccount?>(null)
-    private var currentStep by mutableStateOf(SetupStep.SIGN_IN)
+    private var currentStep by mutableStateOf(SetupStep.SIGN_IN_OPTION)
     private var isSearching by mutableStateOf(false)
     private var isBusy by mutableStateOf(false)
     private var existingConfigFoundId by mutableStateOf<String?>(null)
@@ -69,7 +69,7 @@ class SetupWizardActivity : ComponentActivity() {
                 googleAccount = task.getResult(ApiException::class.java)
                 checkDriveForExistingSetup()
             } catch (e: ApiException) {
-                errorMessage = "Sign-in failed: ${e.statusCode}"
+                errorMessage = "Google login failed."
             }
         }
     }
@@ -78,18 +78,23 @@ class SetupWizardActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         googleAccount = GoogleSignIn.getLastSignedInAccount(this)
         
-        // Detect Deep Link
         val data = intent.data
-        if (data != null && data.host == "join") {
+        if (data != null && (data.host == "join" || data.host == "easyapps-solutions.com")) {
             encryptedInviteKey = data.getQueryParameter("key")
         }
 
-        if (googleAccount != null) checkDriveForExistingSetup()
+        // --- 1. ANONYMOUS STARTUP LOGIC ---
+        // If we have an invite key, go straight to PIN. NO Google Sign-In required.
+        if (encryptedInviteKey != null) {
+            currentStep = SetupStep.ENTER_JOIN_PIN
+        } else if (googleAccount != null) {
+            checkDriveForExistingSetup()
+        }
 
         setContent {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F9FB))) {
                 SetupWizardScreen()
-                LoadingOverlay(isVisible = isBusy, message = "Securing Your Access...")
+                LoadingOverlay(isVisible = isBusy, message = "Securing Connection...")
             }
         }
     }
@@ -100,53 +105,45 @@ class SetupWizardActivity : ComponentActivity() {
             modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header Logo
+            // Logo - Matches Black Master Asset Exactly
             Surface(
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier.size(90.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                color = Color.Black,
+                shadowElevation = 4.dp
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Image(
                         painter = painterResource(id = R.drawable.ic_pass_logo),
                         contentDescription = null,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(60.dp)
                     )
                 }
             }
             
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("EASYPASS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-            Text("Membership Simplified", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("EASYPASS", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text("Organization Hub", style = MaterialTheme.typography.labelSmall, color = Color(0xFF00BFA5), fontWeight = FontWeight.Bold)
             
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
             if (errorMessage != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)), shape = RoundedCornerShape(16.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(text = errorMessage!!, color = Color(0xFFD32F2F), style = MaterialTheme.typography.bodySmall)
-                        if (errorMessage!!.contains("Access Denied")) {
-                            Spacer(Modifier.height(12.dp))
-                            Button(
-                                onClick = { signOutAndReset() },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("Sign Out & Reset", fontSize = 12.sp)
-                            }
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { signOutAndReset() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)), shape = RoundedCornerShape(12.dp)) {
+                            Text("Reset Session")
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
 
             AnimatedContent(targetState = currentStep, label = "StepTransition") { step ->
                 Box(modifier = Modifier.fillMaxWidth()) {
                     when (step) {
-                        SetupStep.SIGN_IN -> SignInStep()
+                        SetupStep.SIGN_IN_OPTION -> SignInStep()
                         SetupStep.PASSWORDS -> PasswordStep()
                         SetupStep.PASTE_LINK -> PasteLinkStep()
                         SetupStep.CONFIRMATION -> ConfirmationStep()
@@ -162,66 +159,70 @@ class SetupWizardActivity : ComponentActivity() {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
         GoogleSignIn.getClient(this, gso).signOut().addOnCompleteListener {
             googleAccount = null
-            currentStep = SetupStep.SIGN_IN
+            currentStep = SetupStep.SIGN_IN_OPTION
             errorMessage = null
+            encryptedInviteKey = null
         }
     }
 
     @Composable
     fun SignInStep() {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "Establish your enterprise access hub in minutes.", 
-                textAlign = TextAlign.Center, 
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.DarkGray
-            )
-            Spacer(modifier = Modifier.height(48.dp))
-            if (isSearching) {
-                CircularProgressIndicator(strokeWidth = 3.dp)
-                Spacer(Modifier.height(16.dp))
-                Text("Authenticating with Cloud...", style = MaterialTheme.typography.labelSmall)
-            } else {
-                Button(
-                    onClick = {
-                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                            .requestEmail()
-                            .requestScopes(Scope(DriveScopes.DRIVE))
-                            .build()
-                        signInLauncher.launch(GoogleSignIn.getClient(this@SetupWizardActivity, gso).signInIntent)
-                    }, 
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Login, null)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Secure Login with Google", fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
+        var showManualJoin by remember { mutableStateOf(false) }
+        var manualLink by remember { mutableStateOf("") }
 
-    @Composable
-    fun RestoreFoundStep() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.CloudDone, null, modifier = Modifier.size(64.dp), tint = Color(0xFF4CAF50))
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Vault Detected", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("We found an existing organization on your Drive.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            
+            Text("Welcome to the world's most effortless membership system.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, color = Color.DarkGray)
             Spacer(modifier = Modifier.height(48.dp))
             
             Button(
-                onClick = { isBusy = true; finalizeRestore(existingConfigFoundId!!) }, 
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp)
+                onClick = {
+                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().requestScopes(Scope(DriveScopes.DRIVE)).build()
+                    signInLauncher.launch(GoogleSignIn.getClient(this@SetupWizardActivity, gso).signInIntent)
+                }, 
+                modifier = Modifier.fillMaxWidth().height(60.dp),
+                shape = RoundedCornerShape(20.dp)
             ) {
-                Text("Restore System Data", fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.CloudUpload, null)
+                Spacer(Modifier.width(12.dp))
+                Text("Setup New Organization", fontWeight = FontWeight.Black)
             }
-            TextButton(
-                onClick = { currentStep = SetupStep.PASSWORDS; existingConfigFoundId = null },
-                modifier = Modifier.padding(top = 8.dp)
-            ) { Text("Create New Organization Instead", fontSize = 12.sp) }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            OutlinedButton(
+                onClick = { showManualJoin = true },
+                modifier = Modifier.fillMaxWidth().height(60.dp),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Icon(Icons.Default.AddLink, null)
+                Spacer(Modifier.width(12.dp))
+                Text("Join Organization", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        if (showManualJoin) {
+            AlertDialog(
+                onDismissRequest = { showManualJoin = false },
+                title = { Text("Organization Join") },
+                text = {
+                    Column {
+                        Text("Paste your secure invitation link below.", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(16.dp))
+                        OutlinedTextField(value = manualLink, onValueChange = { manualLink = it }, label = { Text("Invitation Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val key = android.net.Uri.parse(manualLink).getQueryParameter("key")
+                        if (key != null) {
+                            encryptedInviteKey = key
+                            currentStep = SetupStep.ENTER_JOIN_PIN
+                            showManualJoin = false
+                        }
+                    }) { Text("Continue") }
+                },
+                dismissButton = { TextButton(onClick = { showManualJoin = false }) { Text("Cancel") } }
+            )
         }
     }
 
@@ -231,93 +232,45 @@ class SetupWizardActivity : ComponentActivity() {
         var isVerifying by remember { mutableStateOf(false) }
 
         Column {
-            Text("Join Organization", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Enter the 4-digit PIN provided by your Admin to unlock the secure connection.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            
+            Text("Access Unlock", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+            Text("Enter the 4-digit PIN provided with your link.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(modifier = Modifier.height(32.dp))
-            
-            OutlinedTextField(
-                value = pin,
-                onValueChange = { if (it.length <= 4) pin = it },
-                label = { Text("Invitation PIN") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true
-            )
-            
+            OutlinedTextField(value = pin, onValueChange = { if (it.length <= 4) pin = it }, label = { Text("Join PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
             Spacer(modifier = Modifier.height(48.dp))
-            
             Button(
                 onClick = {
                     isVerifying = true
                     errorMessage = null
                     val decryptedId = SecurityUtils.decryptInvite(encryptedInviteKey!!, pin)
                     if (decryptedId != null) {
-                        lifecycleScope.launch {
-                            val syncManager = DriveSyncManager(this@SetupWizardActivity, getCredential())
-                            val isEditable = syncManager.verifyFolderPermissions(decryptedId)
-                            if (isEditable) {
-                                selectedFolderId = decryptedId
-                                selectedFolderName = syncManager.getFolderName(decryptedId)
-                                currentStep = SetupStep.CONFIRMATION
-                            } else {
-                                errorMessage = "Access Denied: You must be added as an 'Editor' to the Drive folder."
-                            }
-                            isVerifying = false
-                        }
+                        // SUCCESS: PIN is correct. Instantly connect and bypass all searching.
+                        finalizeRestore(decryptedId)
                     } else {
-                        errorMessage = "Incorrect PIN. Please try again."
+                        errorMessage = "Incorrect PIN. The link could not be unlocked."
                         isVerifying = false
                     }
                 },
                 enabled = pin.length == 4 && !isVerifying,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp)
+                modifier = Modifier.fillMaxWidth().height(60.dp),
+                shape = RoundedCornerShape(20.dp)
             ) {
                 if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                else Text("Unlock & Join", fontWeight = FontWeight.Bold)
+                else Text("Unlock & Connect", fontWeight = FontWeight.Black)
             }
         }
     }
-
+    
     @Composable
     fun PasswordStep() {
         Column {
-            Text("Security Profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Security Profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text("Set private keys to authorize management actions.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            
             Spacer(modifier = Modifier.height(32.dp))
-            
-            OutlinedTextField(
-                value = adminPass, 
-                onValueChange = { adminPass = it }, 
-                label = { Text("Admin Master Key") }, 
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true
-            )
+            OutlinedTextField(value = adminPass, onValueChange = { adminPass = it }, label = { Text("New Admin Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
             Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = ownerPass, 
-                onValueChange = { ownerPass = it }, 
-                label = { Text("Owner Master Key") }, 
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true
-            )
-            
+            OutlinedTextField(value = ownerPass, onValueChange = { ownerPass = it }, label = { Text("New Owner Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
             Spacer(modifier = Modifier.height(48.dp))
-            
-            Button(
-                onClick = { currentStep = SetupStep.PASTE_LINK },
-                enabled = adminPass.isNotEmpty() && ownerPass.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text("Continue to Storage", fontWeight = FontWeight.Bold)
-            }
+            Button(onClick = { currentStep = SetupStep.PASTE_LINK }, enabled = adminPass.isNotEmpty() && ownerPass.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) { Text("Setup Storage Hub", fontWeight = FontWeight.Black) }
         }
     }
 
@@ -325,41 +278,21 @@ class SetupWizardActivity : ComponentActivity() {
     fun PasteLinkStep() {
         var link by remember { mutableStateOf("") }
         var isVerifying by remember { mutableStateOf(false) }
-
         Column {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-            Text("Storage Configuration", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Data Storage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text("Paste your shared Google Drive folder URL.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            
             Spacer(Modifier.height(32.dp))
-            
-            OutlinedTextField(
-                value = link, 
-                onValueChange = { link = it }, 
-                label = { Text("Folder Link") }, 
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                placeholder = { Text("https://drive.google.com/...") }
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+            OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Folder Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), placeholder = { Text("https://drive.google.com/...") })
+            Spacer(modifier = Modifier.height(24.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDFA)), shape = RoundedCornerShape(20.dp)) {
+                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Default.Info, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Folder MUST be shared as 'Editor' for 'Anyone with the link'.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Text("Public Visibility: Ensure folder is shared as 'Editor' for 'Anyone with the link'.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
                 }
             }
-
             Spacer(modifier = Modifier.height(48.dp))
-            
             Button(
                 onClick = {
                     val id = extractFolderIdFromLink(link)
@@ -367,27 +300,23 @@ class SetupWizardActivity : ComponentActivity() {
                         isVerifying = true
                         errorMessage = null
                         lifecycleScope.launch {
-                            val syncManager = DriveSyncManager(this@SetupWizardActivity, getCredential())
-                            val isEditable = syncManager.verifyFolderPermissions(id)
-                            if (isEditable) {
-                                selectedFolderId = id
-                                selectedFolderName = syncManager.getFolderName(id)
-                                currentStep = SetupStep.CONFIRMATION
-                            } else {
-                                errorMessage = "Access Denied: Re-authorize or check folder permissions."
-                            }
-                            isVerifying = false
+                            try {
+                                val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
+                                if (syncManager.verifyFolderPermissions(id)) {
+                                    selectedFolderId = id
+                                    selectedFolderName = syncManager.getFolderName(id)
+                                    currentStep = SetupStep.CONFIRMATION
+                                } else { errorMessage = "Access Denied: Folder must be shared as 'Editor'." }
+                            } catch (e: Exception) { errorMessage = "Verification Failed." } finally { isVerifying = false }
                         }
-                    } else {
-                        errorMessage = "Invalid folder link format."
-                    }
+                    } else { errorMessage = "Invalid link." }
                 }, 
                 enabled = link.contains("folders/") && !isVerifying,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp)
+                modifier = Modifier.fillMaxWidth().height(60.dp),
+                shape = RoundedCornerShape(20.dp)
             ) {
-                if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 3.dp)
-                else Text("Validate & Continue", fontWeight = FontWeight.Bold)
+                if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                else Text("Verify & Continue", fontWeight = FontWeight.Black)
             }
         }
     }
@@ -395,33 +324,38 @@ class SetupWizardActivity : ComponentActivity() {
     @Composable
     fun ConfirmationStep() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(
-                modifier = Modifier.size(80.dp),
-                shape = CircleShape,
-                color = Color(0xFFE8F5E9)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Verified, null, modifier = Modifier.size(40.dp), tint = Color(0xFF4CAF50))
-                }
-            }
+            Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(80.dp), tint = Color(0xFF00BFA5))
             Spacer(modifier = Modifier.height(24.dp))
             Text("Ready for Launch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Destination Verified:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Text(selectedFolderName.uppercase(), fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.sp)
-            
+            Text(selectedFolderName.uppercase(), fontWeight = FontWeight.Black, color = Color(0xFF00BFA5), fontSize = 20.sp)
             Spacer(modifier = Modifier.height(48.dp))
-            
             Button(
-                onClick = { isBusy = true; startNewSetup(selectedFolderId, adminPass, ownerPass) }, 
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text("Initialize Organization", fontWeight = FontWeight.Bold)
-            }
-            TextButton(onClick = { 
-                if (encryptedInviteKey != null) currentStep = SetupStep.ENTER_JOIN_PIN
-                else currentStep = SetupStep.PASTE_LINK 
-            }) { Text("Choose Different Location", fontSize = 12.sp) }
+                onClick = {
+                    isBusy = true
+                    lifecycleScope.launch {
+                        try {
+                            val syncManager = if (googleAccount != null) DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential()) else DriveSyncManager.createAnonymous(this@SetupWizardActivity)
+                            val configId = syncManager.findConfigInFolder(selectedFolderId)
+                            if (configId != null) finalizeRestore(configId)
+                            else if (googleAccount != null) startNewSetup(selectedFolderId, adminPass, ownerPass)
+                            else { errorMessage = "Join Failed: No config found and not signed in."; isBusy = false }
+                        } catch (e: Exception) { errorMessage = "Handshake Failed."; isBusy = false }
+                    }
+                }, 
+                modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)
+            ) { Text("Connect to EasyPass", fontWeight = FontWeight.Black) }
+        }
+    }
+
+    @Composable
+    fun RestoreFoundStep() {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.CloudDone, null, modifier = Modifier.size(80.dp), tint = Color(0xFF00BFA5))
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("EasyPass Hub Detected", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+            Spacer(modifier = Modifier.height(48.dp))
+            Button(onClick = { isBusy = true; finalizeRestore(existingConfigFoundId!!) }, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) { Text("Restore This Hub", fontWeight = FontWeight.Black) }
+            TextButton(onClick = { currentStep = SetupStep.PASSWORDS; existingConfigFoundId = null }) { Text("Create New Instead", fontWeight = FontWeight.Bold) }
         }
     }
 
@@ -438,31 +372,19 @@ class SetupWizardActivity : ComponentActivity() {
     }
 
     private fun checkDriveForExistingSetup() {
+        if (googleAccount == null) return
         isSearching = true
         lifecycleScope.launch {
             try {
-                val syncManager = DriveSyncManager(this@SetupWizardActivity, getCredential())
+                val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
                 existingConfigFoundId = syncManager.findExistingConfigId()
-                
-                if (encryptedInviteKey != null) {
-                    currentStep = SetupStep.ENTER_JOIN_PIN
-                } else if (existingConfigFoundId != null) {
-                    currentStep = SetupStep.RESTORE_FOUND
-                } else {
-                    currentStep = SetupStep.PASSWORDS
-                }
-            } catch (e: Exception) {
-                errorMessage = e.message
-                currentStep = SetupStep.SIGN_IN
-            } finally {
-                isSearching = false
-            }
+                currentStep = if (existingConfigFoundId != null) SetupStep.RESTORE_FOUND else SetupStep.PASSWORDS
+            } catch (e: Exception) { errorMessage = "Cloud Error."; currentStep = SetupStep.SIGN_IN_OPTION } finally { isSearching = false }
         }
     }
 
     private fun finalizeRestore(configId: String) {
-        getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit()
-            .putString("config_file_id", configId).apply()
+        getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit().putString("config_file_id", configId).apply()
         startActivity(Intent(this, MainActivity::class.java))
         finish()
     }
@@ -470,17 +392,10 @@ class SetupWizardActivity : ComponentActivity() {
     private fun startNewSetup(folderId: String, adminPass: String, ownerPass: String) {
         lifecycleScope.launch {
             try {
-                val syncManager = DriveSyncManager(this@SetupWizardActivity, getCredential())
-                val configId = syncManager.createInitialFiles(
-                    folderId,
-                    SecurityUtils.hashPassword(adminPass),
-                    SecurityUtils.hashPassword(ownerPass)
-                )
+                val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
+                val configId = syncManager.createInitialFiles(folderId, SecurityUtils.hashPassword(adminPass), SecurityUtils.hashPassword(ownerPass))
                 if (configId != null) finalizeRestore(configId)
-            } catch (e: Exception) {
-                errorMessage = "Setup failed: ${e.message}"
-                isBusy = false
-            }
+            } catch (e: Exception) { errorMessage = "Init failed."; isBusy = false }
         }
     }
 }

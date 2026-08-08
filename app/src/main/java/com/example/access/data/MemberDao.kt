@@ -1,31 +1,28 @@
 package com.example.access.data
 
 import androidx.lifecycle.LiveData
-import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
+import androidx.room.*
 
 @Dao
 interface MemberDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMember(member: Member)
-
-    @Query("SELECT * FROM members WHERE qrCodeHash = :hash LIMIT 1")
-    suspend fun getMemberByHash(hash: String): Member?
-
-    @Query("SELECT * FROM members")
+    @Query("SELECT * FROM members ORDER BY fullName ASC")
     fun getAllMembers(): LiveData<List<Member>>
 
     @Query("SELECT * FROM members")
-    suspend fun getAllMembersList(): List<Member>
-
-    @Query("UPDATE members SET status = :status WHERE memberId = :memberId")
-    suspend fun updateStatus(memberId: String, status: String)
+    fun getAllMembersList(): List<Member>
 
     @Query("SELECT COUNT(*) FROM members")
-    suspend fun getMemberCount(): Int
+    fun getMemberCount(): LiveData<Int>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMember(member: Member)
 
     @Query("DELETE FROM members WHERE memberId = :id")
     suspend fun deleteMember(id: String)
+
+    @Query("UPDATE members SET status = :status WHERE memberId = :id")
+    suspend fun updateStatus(id: String, status: String)
+
+    @Query("SELECT * FROM members WHERE qrCodeHash = :hash LIMIT 1")
+    suspend fun getMemberByHash(hash: String): Member?
 }

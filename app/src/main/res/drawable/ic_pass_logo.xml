@@ -4,21 +4,21 @@
     android:viewportWidth="100"
     android:viewportHeight="100">
     <group
-        android:scaleX="0.8"
-        android:scaleY="0.8"
-        android:translateX="10"
-        android:translateY="10">
-        <!-- QR Bracket (The Tech) -->
+        android:scaleX="0.75"
+        android:scaleY="0.75"
+        android:translateX="12.5"
+        android:translateY="12.5">
+        <!-- Mint Green Brackets: Premium Thickness -->
         <path
             android:fillColor="#00BFA5"
-            android:pathData="M20,20 H40 V25 H25 V45 H20 V20 Z M60,20 H80 V45 H75 V25 H60 V20 Z M20,60 H25 V75 H40 V80 H20 V60 Z M75,60 H80 V80 H60 V75 H75 V60 Z" />
-        <!-- Success Checkmark (The Easy Part) -->
+            android:pathData="M20,20 H48 V30 H30 V48 H20 V20 Z M60,20 H88 V48 H78 V30 H60 V20 Z M20,60 H30 V78 H48 V88 H20 V60 Z M78,60 H88 V88 H60 V78 H78 V60 Z" />
+        <!-- Mint Green Checkmark -->
         <path
             android:fillColor="#00BFA5"
-            android:pathData="M35,50 L45,60 L70,35 L75,40 L45,70 L30,55 Z" />
-        <!-- Simple Person (The Member) -->
+            android:pathData="M32,54 L48,70 L90,26 L96,32 L48,80 L26,58 Z" />
+        <!-- Deep Teal Person: Layered ON TOP (Sync with Master) -->
         <path
             android:fillColor="#006064"
-            android:pathData="M50,45 C54.14,45 57.5,41.86 57.5,37.5 C57.5,33.14 54.14,30 50,30 C45.86,30 42.5,33.14 42.5,37.5 C42.5,41.86 45.86,45 50,45 Z M50,48 C42.5,48 35,51.75 35,55.5 V60 H65 V55.5 C65,51.75 57.5,48 50,48 Z" />
+            android:pathData="M54,48 C60.63,48 66,42.63 66,36 C66,29.37 60.63,24 54,24 C47.37,24 42,29.37 42,36 C42,42.63 47.37,48 54,48 Z M54,52 C42,52 30,58 30,64 V72 H78 V64 C78,58 66,52 54,52 Z" />
     </group>
 </vector>

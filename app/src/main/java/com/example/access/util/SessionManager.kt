@@ -2,50 +2,83 @@ package com.example.access.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.example.access.data.Config
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-class SessionManager(context: Context) {
+class SessionManager(val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE)
 
     companion object {
         const val ROLE_SCANNER = "scanner"
         const val ROLE_ADMIN = "admin"
         const val ROLE_OWNER = "owner"
+        private const val TAG = "SessionManager"
     }
 
-    private val _activeRole = MutableStateFlow(getBaseRole())
+    private val _activeRole = MutableStateFlow(ROLE_SCANNER)
     val activeRole: StateFlow<String> = _activeRole
 
-    private var currentConfig: Config? = null
+    private var _pendingRole: String? = null
+
+    var currentConfig: Config? = null
 
     fun updateConfig(config: Config) {
-        this.currentConfig = config
+        currentConfig = config
+        Log.d(TAG, "Config updated in SessionManager. Hashes available: ${config.roleHashes.keys}")
     }
 
-    fun getBaseRole(): String {
-        return prefs.getString("base_role", ROLE_SCANNER) ?: ROLE_SCANNER
-    }
+    fun getBaseRole(): String = ROLE_SCANNER
 
     fun getActiveRole(): String = _activeRole.value
 
     fun setActiveRole(role: String) {
         _activeRole.value = role
+        Log.d(TAG, "Active role set to: $role")
     }
 
-    fun checkPassword(plainText: String): String? {
-        val hash = SecurityUtils.hashPassword(plainText)
-        val hashes = currentConfig?.roleHashes ?: return null
+    fun setPendingRole(role: String?) {
+        _pendingRole = role
+        Log.d(TAG, "Pending role set to: $role")
+    }
+
+    fun applyPendingRole(): String? {
+        val role = _pendingRole
+        if (role != null) {
+            _activeRole.value = role
+            Log.d(TAG, "Applied pending role: $role")
+            _pendingRole = null
+        }
+        return role
+    }
+
+    fun checkPassword(password: String): String? {
+        val config = currentConfig ?: run {
+            Log.e(TAG, "checkPassword failed: currentConfig is null")
+            return null
+        }
+        val hash = SecurityUtils.hashPassword(password)
+        Log.d(TAG, "Checking password. Input hash: $hash")
         
         return when {
-            hash == hashes["owner"] -> ROLE_OWNER
-            hash == hashes["admin"] -> ROLE_ADMIN
-            else -> null
+            hash == config.roleHashes["owner"] -> {
+                Log.d(TAG, "Match found: OWNER")
+                ROLE_OWNER
+            }
+            hash == config.roleHashes["admin"] -> {
+                Log.d(TAG, "Match found: ADMIN")
+                ROLE_ADMIN
+            }
+            else -> {
+                Log.d(TAG, "No match found for input hash.")
+                null
+            }
         }
     }
 
     fun resetSession() {
-        _activeRole.value = getBaseRole()
+        _activeRole.value = ROLE_SCANNER
+        Log.d(TAG, "Session reset to SCANNER")
     }
 }

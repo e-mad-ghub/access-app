@@ -43,9 +43,11 @@ fun MainAppNavigation(
             TabItem("Dashboard", Icons.Default.Dashboard),
             TabItem("Scanner", Icons.Default.QrCodeScanner)
         )
+        // EVERYONE gets Settings (for Switching Hubs)
+        list.add(TabItem("Settings", Icons.Default.Settings))
+
         if (activeRole != SessionManager.ROLE_SCANNER) {
             list.add(TabItem("Members", Icons.Default.Group))
-            list.add(TabItem("Settings", Icons.Default.Settings))
         }
         if (activeRole == SessionManager.ROLE_OWNER) {
             list.add(TabItem("Owner", Icons.Default.VpnKey))
@@ -116,15 +118,14 @@ fun MainAppNavigation(
                     }
                     "Scanner" -> {
                         KioskScannerScreen(
-                            onBarcodeScanned = { scannerViewModel.processBarcode(it) },
-                            recentScans = recentScans
+                            viewModel = scannerViewModel
                         )
                     }
                     "Members" -> {
                         MemberManagementScreen(config = currentConfig)
                     }
                     "Settings" -> {
-                        AdminSettingsScreen(config = currentConfig)
+                        AdminSettingsScreen(config = currentConfig, activeRole = activeRole)
                     }
                     "Owner" -> {
                         OwnerDashboardScreen(config = currentConfig, onConfigUpdated = onConfigUpdated)

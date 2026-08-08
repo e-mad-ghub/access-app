@@ -4,21 +4,20 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <group
-        android:scaleX="0.65"
-        android:scaleY="0.65"
-        android:translateX="18.9"
-        android:translateY="18.9">
-        <!-- Mint Green Brackets -->
+        android:scaleX="0.6"
+        android:scaleY="0.6"
+        android:translateX="21.6"
+        android:translateY="21.6">
+        <!-- Mint Green Brackets & Checkmark -->
         <path
             android:fillColor="#00BFA5"
-            android:pathData="M20,20 H45 V28 H25 V48 H20 V20 Z M63,20 H88 V48 H83 V28 H63 V20 Z M20,60 H25 V80 H45 V88 H20 V60 Z M83,60 H88 V88 H63 V80 H83 V60 Z" />
-        <!-- Mint Green Checkmark -->
+            android:pathData="M20,20 H48 V30 H30 V48 H20 V20 Z M60,20 H88 V48 H78 V30 H60 V20 Z M20,60 H30 V78 H48 V88 H20 V60 Z M78,60 H88 V88 H60 V78 H78 V60 Z" />
         <path
             android:fillColor="#00BFA5"
-            android:pathData="M35,55 L48,68 L85,31 L92,38 L48,78 L28,62 Z" />
-        <!-- Deep Teal Person -->
+            android:pathData="M32,54 L48,70 L90,26 L96,32 L48,80 L26,58 Z" />
+        <!-- Deep Teal Person: Master Layering (ON TOP) -->
         <path
             android:fillColor="#006064"
-            android:pathData="M54,48 C59.5,48 64,43.5 64,38 C64,32.5 59.5,28 54,28 C48.5,28 44,32.5 44,38 C44,43.5 48.5,48 54,48 Z M54,52 C44,52 34,57 34,62 V68 H74 V62 C74,57 64,52 54,52 Z" />
+            android:pathData="M54,48 C60.63,48 66,42.63 66,36 C66,29.37 60.63,24 54,24 C47.37,24 42,29.37 42,36 C42,42.63 47.37,48 54,48 Z M54,52 C42,52 30,58 30,64 V72 H78 V64 C78,58 66,52 54,52 Z" />
     </group>
 </vector>

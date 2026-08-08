@@ -204,7 +204,7 @@ fun DashboardScreen(
                     Text("No scans recorded yet.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                 }
             } else {
-                recentScans.reversed().take(3).forEach { scan ->
+                recentScans.take(3).forEach { scan ->
                     ActivityItem(scan)
                     Spacer(modifier = Modifier.height(12.dp))
                 }
