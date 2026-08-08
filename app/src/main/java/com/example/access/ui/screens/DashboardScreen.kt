@@ -1,13 +1,9 @@
 package com.example.access.ui.screens
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,7 +22,7 @@ import coil.compose.AsyncImage
 import com.example.access.SyncStatus
 import com.example.access.data.Config
 import com.example.access.data.RecentScan
-import com.example.access.util.SessionManager
+import com.example.access.ui.components.secretElevation
 
 @Composable
 fun DashboardScreen(
@@ -36,7 +32,8 @@ fun DashboardScreen(
     recentScans: List<RecentScan>,
     activeRole: String,
     onManualSync: () -> Unit,
-    onRepairCloud: () -> Unit
+    onRepairCloud: () -> Unit,
+    onTriggerSecret: () -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
 
@@ -68,12 +65,15 @@ fun DashboardScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White.copy(alpha = 0.7f)
                 )
+                
+                // SECRET GESTURE: Tap organization name 5 times to elevate
                 Text(
                     text = config.branding.organizationName,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Black,
                     color = Color.White,
-                    letterSpacing = (-1).sp
+                    letterSpacing = (-1).sp,
+                    modifier = Modifier.secretElevation(onTriggerSecret)
                 )
                 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -92,7 +92,7 @@ fun DashboardScreen(
                 }
             }
 
-            // FLOATING BRAND CIRCLE (The Production Touch)
+            // FLOATING BRAND CIRCLE
             Surface(
                 modifier = Modifier
                     .size(86.dp)
@@ -107,75 +107,37 @@ fun DashboardScreen(
                         AsyncImage(
                             model = "https://lh3.googleusercontent.com/u/0/d/${config.branding.logoFileId}",
                             contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.size(54.dp)
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
                         )
                     } else {
-                        Icon(Icons.Default.Business, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(32.dp))
+                        Icon(Icons.Default.Business, null, tint = primaryColor, modifier = Modifier.size(32.dp))
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(40.dp))
-
-        Column(
-            modifier = Modifier
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
+        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            Spacer(modifier = Modifier.height(60.dp))
             
-            // ROLE-SPECIFIC CAPABILITY GUIDE
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(24.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.1f))
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AutoAwesome, null, tint = primaryColor, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = "${activeRole.uppercase()} HUB",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Black,
-                            color = primaryColor
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    val guideText = when(activeRole) {
-                        SessionManager.ROLE_OWNER -> "Full system control active. Manage branding and global keys."
-                        SessionManager.ROLE_ADMIN -> "Staff management active. Issue passes and bulk import data."
-                        else -> "Scanning station active. Verify incoming digital passes."
-                    }
-                    Text(guideText, style = MaterialTheme.typography.bodySmall, color = Color.DarkGray)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Action Card
-            Surface(
+            // Database Management - RESTORED FOR ALL ROLES
+            Text("SYSTEM CONNECTION", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black, color = Color.Gray, letterSpacing = 1.sp)
+            Spacer(Modifier.height(16.dp))
+            OutlinedCard(
                 onClick = onManualSync,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = Color.White,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEEEEEE)),
-                shadowElevation = 1.dp
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier.padding(20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.1f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Sync, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                    Surface(color = primaryColor.copy(alpha = 0.1f), shape = CircleShape, modifier = Modifier.size(44.dp)) {
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Refresh, null, tint = primaryColor) }
                     }
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Cloud Database", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         Text("Last check: moments ago", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
@@ -187,7 +149,7 @@ fun DashboardScreen(
                     }
                 }
             }
-
+            
             Spacer(modifier = Modifier.height(32.dp))
 
             // Recent Activity Section
@@ -219,7 +181,7 @@ fun DashboardScreen(
 fun DashboardPill(label: String, icon: ImageVector, containerColor: Color) {
     Surface(
         color = containerColor,
-        shape = CircleShape
+        shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -233,29 +195,36 @@ fun DashboardPill(label: String, icon: ImageVector, containerColor: Color) {
 }
 
 @Composable
-fun ActivityItem(scan: RecentScan) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+fun ActivityItem(scan: com.example.access.data.RecentScan) {
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 1.dp
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .background(if (scan.isGranted) Color(0xFFE8F5E9) else Color(0xFFFFEBEE), CircleShape),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                if (scan.isGranted) Icons.Default.Check else Icons.Default.Close,
-                contentDescription = null,
-                tint = if (scan.isGranted) Color(0xFF4CAF50) else Color(0xFFF44336),
-                modifier = Modifier.size(18.dp)
-            )
+            Surface(
+                color = if (scan.isGranted) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                shape = CircleShape,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (scan.isGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                        null,
+                        tint = if (scan.isGranted) Color(0xFF4CAF50) else Color(0xFFD32F2F),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(scan.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                Text(if (scan.isGranted) "Entry Verified" else "Access Refused", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            }
+            Text(scan.time, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         }
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(scan.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(if (scan.isGranted) "Authorized Entry" else "Access Denied", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        }
-        Text(scan.time, style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
     }
 }

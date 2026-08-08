@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,35 +13,49 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import com.example.access.ui.theme.LocalBranding
 import com.example.access.util.SessionManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
 import com.google.api.services.drive.DriveScopes
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Secret Role Elevation Logic
+ * Provides a discreet gesture handler and management banner without a visible TopBar.
+ */
+
 @Composable
-fun PassTopBar(
-    orgName: String,
+fun ManagementSecretHandler(
     sessionManager: SessionManager,
     onSessionChanged: () -> Unit
 ) {
     val context = LocalContext.current
-    var tapCount by remember { mutableStateOf(0) }
-    var lastTapTime by remember { mutableStateOf(0L) }
-    var showPasswordDialog by remember { mutableStateOf(false) }
-
     val activeRole by sessionManager.activeRole.collectAsState()
-    val branding = LocalBranding.current
 
+    // This component renders the management banner at the top when active
+    Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
+        if (activeRole != sessionManager.getBaseRole()) {
+            ElevatedBanner(activeRole) {
+                sessionManager.resetSession()
+                onSessionChanged()
+                Toast.makeText(context, "Session Ended", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+}
+
+@Composable
+fun PasswordElevationDialog(
+    sessionManager: SessionManager,
+    onDismiss: () -> Unit,
+    onSessionChanged: () -> Unit
+) {
+    val context = LocalContext.current
     val signInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account != null) {
@@ -53,92 +68,36 @@ fun PassTopBar(
         onSessionChanged()
     }
 
-    // UI RESTORATION: Using Column with statusBarsPadding to ensure nothing is behind the clock
-    Column(modifier = Modifier.background(Color.White).statusBarsPadding()) {
-        // MANAGEMENT BANNER: Restoration of the End Session button and visibility
-        if (activeRole != SessionManager.ROLE_SCANNER) {
-            ElevatedBanner(activeRole) {
-                sessionManager.resetSession()
-                onSessionChanged()
-                Toast.makeText(context, "Session Ended", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        TopAppBar(
-            windowInsets = WindowInsets(0, 0, 0, 0),
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable {
-                        val currentTime = System.currentTimeMillis()
-                        if (currentTime - lastTapTime < 500) tapCount++ else tapCount = 1
-                        lastTapTime = currentTime
-                        if (tapCount >= 5) {
-                            showPasswordDialog = true
-                            tapCount = 0
-                        }
-                    }
-                ) {
-                    branding.logoFileId?.let { logoId ->
-                        AsyncImage(
-                            model = "https://lh3.googleusercontent.com/u/0/d/$logoId",
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                        )
-                        Spacer(Modifier.width(12.dp))
-                    }
-                    Text(
-                        text = orgName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color.White,
-                titleContentColor = MaterialTheme.colorScheme.onSurface
-            )
-        )
-        
-        // Subtle divider for premium look
-        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
-    }
-
-    if (showPasswordDialog) {
-        PasswordDialog(
-            onDismiss = { showPasswordDialog = false },
-            onConfirm = { password ->
-                val matchedRole = sessionManager.checkPassword(password)
-                if (matchedRole != null) {
-                    Toast.makeText(context, "Key Accepted", Toast.LENGTH_SHORT).show()
-                    if (matchedRole == SessionManager.ROLE_ADMIN || matchedRole == SessionManager.ROLE_OWNER) {
-                        val account = GoogleSignIn.getLastSignedInAccount(context)
-                        if (account == null) {
-                            sessionManager.setPendingRole(matchedRole)
-                            Toast.makeText(context, "Login required for write access", Toast.LENGTH_LONG).show()
-                            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                                .requestEmail()
-                                .requestScopes(Scope(DriveScopes.DRIVE))
-                                .build()
-                            signInLauncher.launch(GoogleSignIn.getClient(context, gso).signInIntent)
-                        } else {
-                            sessionManager.setActiveRole(matchedRole)
-                            Toast.makeText(context, "Elevated to ${matchedRole.uppercase()}", Toast.LENGTH_SHORT).show()
-                        }
+    PasswordDialog(
+        onDismiss = onDismiss,
+        onConfirm = { password ->
+            val matchedRole = sessionManager.checkPassword(password)
+            if (matchedRole != null) {
+                Toast.makeText(context, "Key Accepted", Toast.LENGTH_SHORT).show()
+                if (matchedRole == SessionManager.ROLE_ADMIN || matchedRole == SessionManager.ROLE_OWNER) {
+                    val account = GoogleSignIn.getLastSignedInAccount(context)
+                    if (account == null) {
+                        sessionManager.setPendingRole(matchedRole)
+                        Toast.makeText(context, "Login required for write access", Toast.LENGTH_LONG).show()
+                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestEmail()
+                            .requestScopes(Scope(DriveScopes.DRIVE))
+                            .build()
+                        signInLauncher.launch(GoogleSignIn.getClient(context, gso).signInIntent)
                     } else {
                         sessionManager.setActiveRole(matchedRole)
+                        Toast.makeText(context, "Elevated to ${matchedRole.uppercase()}", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    Toast.makeText(context, "Incorrect Security Key", Toast.LENGTH_SHORT).show()
+                    sessionManager.setActiveRole(matchedRole)
                 }
-                showPasswordDialog = false
-                onSessionChanged()
+            } else {
+                Toast.makeText(context, "Incorrect Security Key", Toast.LENGTH_SHORT).show()
             }
-        )
-    }
+            onDismiss()
+            onSessionChanged()
+        }
+    )
 }
 
 @Composable
@@ -163,7 +122,6 @@ fun ElevatedBanner(role: String, onEndSession: () -> Unit) {
                     letterSpacing = 1.2.sp
                 )
             }
-            // Button is restored and clearly visible
             Surface(
                 onClick = onEndSession,
                 color = Color.White.copy(alpha = 0.2f),
@@ -206,4 +164,28 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+/**
+ * Discreet tap modifier for secret elevation
+ */
+@Composable
+fun Modifier.secretElevation(
+    onTrigger: () -> Unit
+): Modifier {
+    var tapCount by remember { mutableStateOf(0) }
+    var lastTapTime by remember { mutableStateOf(0L) }
+    
+    return this.clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null // No visual ripple to remain secret
+    ) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastTapTime < 500) tapCount++ else tapCount = 1
+        lastTapTime = currentTime
+        if (tapCount >= 5) {
+            onTrigger()
+            tapCount = 0
+        }
+    }
 }

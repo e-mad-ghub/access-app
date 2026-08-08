@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.example.access.ui.components.LoadingOverlay
+import com.example.access.ui.components.secretElevation
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -123,7 +124,18 @@ class SetupWizardActivity : ComponentActivity() {
             
             Spacer(modifier = Modifier.height(20.dp))
             Text("EASYPASS", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-            Text("Organization Hub", style = MaterialTheme.typography.labelSmall, color = Color(0xFF00BFA5), fontWeight = FontWeight.Bold)
+            
+            // SECRET GESTURE: Tap "Organization Hub" 5 times
+            Text(
+                text = "Organization Hub", 
+                style = MaterialTheme.typography.labelSmall, 
+                color = Color(0xFF00BFA5), 
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.secretElevation {
+                    // Discreet Toast to confirm secret trigger works in Wizard
+                    Toast.makeText(this@SetupWizardActivity, "System Keys Active", Toast.LENGTH_SHORT).show()
+                }
+            )
             
             Spacer(modifier = Modifier.height(40.dp))
 

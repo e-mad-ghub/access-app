@@ -1,6 +1,7 @@
 package com.example.access.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
@@ -18,7 +19,8 @@ import com.example.access.MainScannerViewModel
 import com.example.access.SyncStatus
 import com.example.access.data.Config
 import com.example.access.data.RecentScan
-import com.example.access.ui.components.PassTopBar
+import com.example.access.ui.components.ManagementSecretHandler
+import com.example.access.ui.components.PasswordElevationDialog
 import com.example.access.ui.screens.*
 import com.example.access.util.SessionManager
 
@@ -36,6 +38,7 @@ fun MainAppNavigation(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var sessionKey by remember { mutableIntStateOf(0) }
+    var showSecretDialog by remember { mutableStateOf(false) }
     val activeRole by sessionManager.activeRole.collectAsState()
 
     val tabs = remember(activeRole) {
@@ -43,7 +46,6 @@ fun MainAppNavigation(
             TabItem("Dashboard", Icons.Default.Dashboard),
             TabItem("Scanner", Icons.Default.QrCodeScanner)
         )
-        // EVERYONE gets Settings (for Switching Hubs)
         list.add(TabItem("Settings", Icons.Default.Settings))
 
         if (activeRole != SessionManager.ROLE_SCANNER) {
@@ -57,8 +59,8 @@ fun MainAppNavigation(
 
     Scaffold(
         topBar = {
-            PassTopBar(
-                orgName = currentConfig.branding.organizationName,
+            // REDESIGN: No visible TopAppBar. Using ManagementSecretHandler for the banner.
+            ManagementSecretHandler(
                 sessionManager = sessionManager,
                 onSessionChanged = { 
                     sessionKey++ 
@@ -113,7 +115,8 @@ fun MainAppNavigation(
                             recentScans = recentScans,
                             activeRole = activeRole,
                             onManualSync = onManualSync,
-                            onRepairCloud = onRepairCloud
+                            onRepairCloud = onRepairCloud,
+                            onTriggerSecret = { showSecretDialog = true }
                         )
                     }
                     "Scanner" -> {
@@ -133,6 +136,17 @@ fun MainAppNavigation(
                 }
             }
         }
+    }
+
+    if (showSecretDialog) {
+        PasswordElevationDialog(
+            sessionManager = sessionManager,
+            onDismiss = { showSecretDialog = false },
+            onSessionChanged = {
+                sessionKey++
+                selectedTab = 0
+            }
+        )
     }
 }
 
