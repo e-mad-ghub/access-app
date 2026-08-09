@@ -1,6 +1,8 @@
 package com.example.access.ui.screens
 
+import com.example.access.BillingViewModel
 import android.content.Context
+import android.app.Activity
 import android.graphics.*
 import android.net.Uri
 import android.widget.Toast
@@ -44,6 +46,8 @@ import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.services.drive.DriveScopes
+import com.example.access.ui.components.PaywallDialog
+import com.example.access.util.BillingManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,6 +60,8 @@ data class ThemePalette(val name: String, val primary: String, val secondary: St
 @Composable
 fun OwnerDashboardScreen(
     config: Config,
+    billingViewModel: BillingViewModel,
+    configFileId: String,
     onConfigUpdated: (Config) -> Unit
 ) {
     val context = LocalContext.current
@@ -74,6 +80,9 @@ fun OwnerDashboardScreen(
     var showNotes by remember { mutableStateOf(config.branding.fieldConfig.showNotes) }
     var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
     var showCropDialog by remember { mutableStateOf(false) }
+    var showUpgradeDialog by remember { mutableStateOf(false) }
+    val productDetails by billingViewModel.productDetails.collectAsState()
+    val billingState by billingViewModel.billingState.collectAsState()
 
     val palettes = listOf(
         ThemePalette("Midnight Pro", "#1A237E", "#5C6BC0"),
@@ -110,6 +119,39 @@ fun OwnerDashboardScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp).verticalScroll(scrollState), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = if (config.isPro) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        if (config.isPro) "Pro Tier" else "Free Tier",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (config.isPro) "All premium features unlocked" else "Upgrade to unlock premium features",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (!config.isPro) {
+                    Button(
+                        onClick = { showUpgradeDialog = true },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Upgrade")
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
         Text("Admin Operations", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
         OperationCard("Brand Identity") {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -120,7 +162,12 @@ fun OwnerDashboardScreen(
                         } else { Icon(Icons.Default.Business, null, modifier = Modifier.size(48.dp), tint = Color.LightGray) }
                     }
                 }
-                Button(onClick = { logoLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Upload Logo") }
+                Button(
+                    onClick = { logoLauncher.launch("image/*") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = config.isPro
+                ) { Text(if (config.isPro) "Update Logo" else "Update Logo (Pro only)") }
                 OutlinedTextField(value = orgName, onValueChange = { orgName = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     palettes.forEach { palette ->
@@ -132,11 +179,16 @@ fun OwnerDashboardScreen(
                         }
                     }
                 }
-                Button(onClick = {
-                    isBusy = true
-                    val updated = config.copy(branding = config.branding.copy(organizationName = orgName, primaryColor = selectedColor))
-                    updateConfigOnDrive(context, updated) { onConfigUpdated(it); isBusy = false }
-                }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Save Brand Profile") }
+                Button(
+                    onClick = {
+                        isBusy = true
+                        val updated = config.copy(branding = config.branding.copy(organizationName = orgName, primaryColor = selectedColor))
+                        updateConfigOnDrive(context, updated) { onConfigUpdated(it); isBusy = false }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = config.isPro
+                ) { Text(if (config.isPro) "Save Brand Profile" else "Save Brand Profile (Pro only)") }
             }
         }
         OperationCard("Data Requirements") {
@@ -146,11 +198,16 @@ fun OwnerDashboardScreen(
                 FieldToggleRow("Physical Address", showAddress) { showAddress = it }
                 FieldToggleRow("Management Notes", showNotes) { showNotes = it }
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = {
-                    isBusy = true
-                    val updated = config.copy(branding = config.branding.copy(fieldConfig = FieldConfig(showPhone, showEmail, showAddress, showNotes)))
-                    updateConfigOnDrive(context, updated) { onConfigUpdated(it); isBusy = false }
-                }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Update Member Fields") }
+                Button(
+                    onClick = {
+                        isBusy = true
+                        val updated = config.copy(branding = config.branding.copy(fieldConfig = FieldConfig(showPhone, showEmail, showAddress, showNotes)))
+                        updateConfigOnDrive(context, updated) { onConfigUpdated(it); isBusy = false }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = config.isPro
+                ) { Text(if (config.isPro) "Update Member Fields" else "Update Member Fields (Pro only)") }
             }
         }
         OperationCard("Security Credentials") {
@@ -158,6 +215,23 @@ fun OwnerDashboardScreen(
                 OutlinedTextField(value = adminPass, onValueChange = { adminPass = it }, label = { Text("New Admin Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 OutlinedTextField(value = ownerPass, onValueChange = { ownerPass = it }, label = { Text("New Owner Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Button(onClick = {
+                    // Validate identical passwords
+                    if (adminPass.isNotEmpty() && ownerPass.isNotEmpty() && adminPass == ownerPass) {
+                        Toast.makeText(context, "Admin and Owner keys must be different", Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
+                    // Validate admin key doesn't match existing owner key
+                    if (adminPass.isNotEmpty() && config.roleHashes["owner"] != null && 
+                        SecurityUtils.verifyPassword(adminPass, config.roleHashes["owner"]!!)) {
+                        Toast.makeText(context, "Admin key conflicts with existing Owner key", Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
+                    // Validate owner key doesn't match existing admin key
+                    if (ownerPass.isNotEmpty() && config.roleHashes["admin"] != null &&
+                        SecurityUtils.verifyPassword(ownerPass, config.roleHashes["admin"]!!)) {
+                        Toast.makeText(context, "Owner key conflicts with existing Admin key", Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
                     isBusy = true
                     val newH = config.roleHashes.toMutableMap()
                     if (adminPass.isNotEmpty()) newH["admin"] = SecurityUtils.hashPassword(adminPass)
@@ -172,16 +246,41 @@ fun OwnerDashboardScreen(
                     Icon(Icons.Default.Storage, null, tint = Color.Gray); Spacer(Modifier.width(12.dp)); Text(activeFolderName, fontWeight = FontWeight.Bold)
                 }
                 OutlinedTextField(value = folderLink, onValueChange = { folderLink = it }, label = { Text("Migrate Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                Button(onClick = {
-                    val ext = extractFolderIdFromLink(folderLink)
-                    if (ext != null) {
-                        isBusy = true
-                        scope.launch { if (syncManager?.verifyFolderPermissions(ext) == true) relocate(context, ext) { onConfigUpdated(it); isBusy = false; folderLink = "" } else { isBusy = false; Toast.makeText(context, "Editor required", Toast.LENGTH_LONG).show() } }
-                    }
-                }, modifier = Modifier.fillMaxWidth(), enabled = folderLink.contains("folders/"), shape = RoundedCornerShape(12.dp)) { Text("Relocate Hub") }
+                Button(
+                    onClick = {
+                        val ext = extractFolderIdFromLink(folderLink)
+                        if (ext != null) {
+                            isBusy = true
+                            scope.launch { if (syncManager?.verifyFolderPermissions(ext) == true) relocate(context, ext) { onConfigUpdated(it); isBusy = false; folderLink = "" } else { isBusy = false; Toast.makeText(context, "Editor required", Toast.LENGTH_LONG).show() } }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = config.isPro && folderLink.contains("folders/"),
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text(if (config.isPro) "Relocate Hub" else "Relocate Hub (Pro only)") }
             }
         }
         Spacer(modifier = Modifier.height(100.dp))
+    }
+    if (showUpgradeDialog) {
+        PaywallDialog(
+            onDismissRequest = { showUpgradeDialog = false },
+            onPurchaseClick = {
+                val activity = context as Activity
+                billingViewModel.launchPurchase(activity) { purchase ->
+                    billingViewModel.activateProAfterPurchase(
+                        purchase = purchase,
+                        currentConfig = config,
+                        configFileId = configFileId,
+                        onConfigUpdated = onConfigUpdated
+                    )
+                    showUpgradeDialog = false
+                }
+            },
+            productDetails = productDetails,
+            isLoading = billingState is BillingManager.BillingState.LOADING || billingState is BillingManager.BillingState.PURCHASING,
+            errorMessage = (billingState as? BillingManager.BillingState.ERROR)?.message
+        )
     }
     if (isBusy) com.example.access.ui.components.LoadingOverlay(isVisible = true, message = "Processing...")
 }

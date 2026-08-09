@@ -89,6 +89,8 @@ dependencies {
         exclude(group = "org.apache.httpcomponents")
     }
     implementation(libs.google.api.client)
+// Play Billing
+    implementation(libs.billing.ktx)
 
     // Apache POI (Excel)
     implementation(libs.poi.ooxml)

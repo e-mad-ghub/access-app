@@ -1,5 +1,10 @@
 package com.example.access.ui.screens
 
+import com.example.access.BillingViewModel
+import com.example.access.ui.components.PaywallDialog
+import com.example.access.util.BillingManager
+import com.android.billingclient.api.ProductDetails
+import android.app.Activity
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -36,9 +41,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.UUID
+private const val FREE_TIER_MEMBER_LIMIT = 15
 
 @Composable
-fun MemberManagementScreen(config: Config) {
+fun MemberManagementScreen(
+    config: Config,
+    billingViewModel: BillingViewModel,
+    configFileId: String,
+    onConfigUpdated: (Config) -> Unit,
+    onUpgradeRequest: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { AppDatabase.getDatabase(context) }
@@ -48,6 +60,9 @@ fun MemberManagementScreen(config: Config) {
     var searchQuery by remember { mutableStateOf("") }
     
     var isBusy by remember { mutableStateOf(false) }
+var showPaywall by remember { mutableStateOf(false) }
+val productDetails by billingViewModel.productDetails.collectAsState()
+val billingState by billingViewModel.billingState.collectAsState()
 
     val members by db.memberDao().getAllMembers().observeAsState(emptyList())
 
@@ -64,7 +79,7 @@ fun MemberManagementScreen(config: Config) {
                 Text("Members", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
                 Text("Directory & Pass Management", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             }
-            FloatingActionButton(onClick = { showAddDialog = true }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = CircleShape, modifier = Modifier.size(56.dp)) {
+            FloatingActionButton(onClick = { if (!config.isPro && members.size >= FREE_TIER_MEMBER_LIMIT) showPaywall = true else showAddDialog = true }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = CircleShape, modifier = Modifier.size(56.dp)) {
                 Icon(Icons.Default.Add, contentDescription = null)
             }
         }
@@ -174,6 +189,26 @@ fun MemberManagementScreen(config: Config) {
         }, dismissButton = { TextButton(onClick = { memberToDelete = null }) { Text("Cancel") } })
     }
 
+if (showPaywall) {
+        PaywallDialog(
+            onDismissRequest = { showPaywall = false },
+            onPurchaseClick = {
+                val activity = context as Activity
+                billingViewModel.launchPurchase(activity) { purchase ->
+                    billingViewModel.activateProAfterPurchase(
+                        purchase = purchase,
+                        currentConfig = config,
+                        configFileId = configFileId,
+                        onConfigUpdated = onConfigUpdated
+                    )
+                    showPaywall = false
+                }
+            },
+            productDetails = productDetails,
+            isLoading = billingState is BillingManager.BillingState.LOADING || billingState is BillingManager.BillingState.PURCHASING,
+            errorMessage = (billingState as? BillingManager.BillingState.ERROR)?.message
+        )
+    }
     if (isBusy) com.example.access.ui.components.LoadingOverlay(isVisible = true, message = "Updating...")
 }
 

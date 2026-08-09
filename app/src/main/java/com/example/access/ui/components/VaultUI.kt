@@ -32,18 +32,27 @@ import com.google.api.services.drive.DriveScopes
 @Composable
 fun ManagementSecretHandler(
     sessionManager: SessionManager,
-    onSessionChanged: () -> Unit
+    onSessionChanged: () -> Unit,
+    onRequestElevation: () -> Unit
 ) {
     val context = LocalContext.current
     val activeRole by sessionManager.activeRole.collectAsState()
 
     // This component renders the management banner at the top when active
     Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
-        if (activeRole != sessionManager.getBaseRole()) {
-            ElevatedBanner(activeRole) {
-                sessionManager.resetSession()
-                onSessionChanged()
-                Toast.makeText(context, "Session Ended", Toast.LENGTH_SHORT).show()
+        when (activeRole) {
+            SessionManager.ROLE_SCANNER -> {
+                ScannerBanner(onChangeSession = onRequestElevation)
+            }
+            sessionManager.getBaseRole() -> {
+                // Should not happen, but if base role is not scanner, no banner
+            }
+            else -> {
+                ElevatedBanner(activeRole) {
+                    sessionManager.resetSession()
+                    onSessionChanged()
+                    Toast.makeText(context, "Session Ended", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -68,39 +77,140 @@ fun PasswordElevationDialog(
         onSessionChanged()
     }
 
+    var pendingMatches by remember { mutableStateOf<List<String>?>(null) }
+    var pendingPassword by remember { mutableStateOf("") }
+
+    fun proceedWithRole(role: String) {
+        Toast.makeText(context, "Key Accepted", Toast.LENGTH_SHORT).show()
+        if (role == SessionManager.ROLE_ADMIN || role == SessionManager.ROLE_OWNER) {
+            val account = GoogleSignIn.getLastSignedInAccount(context)
+            if (account == null) {
+                sessionManager.setPendingRole(role)
+                Toast.makeText(context, "Login required for write access", Toast.LENGTH_LONG).show()
+                val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                    .requestEmail()
+                    .requestScopes(Scope(DriveScopes.DRIVE))
+                    .build()
+                signInLauncher.launch(GoogleSignIn.getClient(context, gso).signInIntent)
+            } else {
+                sessionManager.setActiveRole(role)
+                Toast.makeText(context, "Elevated to ${role.uppercase()}", Toast.LENGTH_SHORT).show()
+                onSessionChanged()
+                onDismiss()
+            }
+        } else {
+            sessionManager.setActiveRole(role)
+            onSessionChanged()
+            onDismiss()
+        }
+    }
+
+    if (pendingMatches != null && pendingMatches!!.size > 1) {
+        // Show role selection dialog
+        AlertDialog(
+            onDismissRequest = {
+                pendingMatches = null
+                pendingPassword = ""
+            },
+            title = { Text("Select Role", fontWeight = FontWeight.Black) },
+            text = {
+                Text("This key matches multiple roles. Choose which role to elevate to:")
+            },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    pendingMatches!!.forEach { role ->
+                        Button(
+                            onClick = {
+                                proceedWithRole(role)
+                                pendingMatches = null
+                                pendingPassword = ""
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(role.uppercase())
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        pendingMatches = null
+                        pendingPassword = ""
+                    }
+                ) { Text("Cancel") }
+            }
+        )
+        return
+    }
+
     PasswordDialog(
         onDismiss = onDismiss,
         onConfirm = { password ->
-            val matchedRole = sessionManager.checkPassword(password)
-            if (matchedRole != null) {
-                Toast.makeText(context, "Key Accepted", Toast.LENGTH_SHORT).show()
-                if (matchedRole == SessionManager.ROLE_ADMIN || matchedRole == SessionManager.ROLE_OWNER) {
-                    val account = GoogleSignIn.getLastSignedInAccount(context)
-                    if (account == null) {
-                        sessionManager.setPendingRole(matchedRole)
-                        Toast.makeText(context, "Login required for write access", Toast.LENGTH_LONG).show()
-                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                            .requestEmail()
-                            .requestScopes(Scope(DriveScopes.DRIVE))
-                            .build()
-                        signInLauncher.launch(GoogleSignIn.getClient(context, gso).signInIntent)
-                    } else {
-                        sessionManager.setActiveRole(matchedRole)
-                        Toast.makeText(context, "Elevated to ${matchedRole.uppercase()}", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    sessionManager.setActiveRole(matchedRole)
+            val matches = sessionManager.checkPasswordAll(password)
+            when (matches.size) {
+                0 -> {
+                    Toast.makeText(context, "Incorrect Security Key", Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                    onSessionChanged()
                 }
-            } else {
-                Toast.makeText(context, "Incorrect Security Key", Toast.LENGTH_SHORT).show()
+                1 -> {
+                    proceedWithRole(matches.first())
+                }
+                else -> {
+                    // Multiple matches - store and show role selection
+                    pendingMatches = matches
+                    pendingPassword = password
+                }
             }
-            onDismiss()
-            onSessionChanged()
         }
     )
 }
 
 @Composable
+fun ScannerBanner(onChangeSession: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondary,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "MODE: SCANNER",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.2.sp
+                )
+            }
+            Surface(
+                onClick = onChangeSession,
+                color = Color.White.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    "CHANGE SESSION",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+    }
+}
+    @Composable
 fun ElevatedBanner(role: String, onEndSession: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.primary,

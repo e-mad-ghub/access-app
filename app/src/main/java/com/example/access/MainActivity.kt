@@ -23,6 +23,7 @@ import com.example.access.data.Config
 import com.example.access.ui.MainAppNavigation
 import com.example.access.ui.theme.AccessTheme
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.ImportResult
 import com.example.access.util.FeedbackManager
 import com.example.access.util.SessionManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -30,12 +31,14 @@ import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccoun
 import com.google.api.services.drive.DriveScopes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.example.access.BillingViewModel
 
 enum class SyncStatus { SYNCING, HEALTHY, ERROR }
 
 class MainActivity : ComponentActivity() {
     private lateinit var sessionManager: SessionManager
     private lateinit var feedbackManager: FeedbackManager
+    private lateinit var billingViewModel: BillingViewModel
     private lateinit var scannerViewModel: MainScannerViewModel
 
     private var currentConfig by mutableStateOf(Config())
@@ -94,7 +97,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         scannerViewModel = ViewModelProvider(this)[MainScannerViewModel::class.java]
-
+        billingViewModel = ViewModelProvider(this)[BillingViewModel::class.java]
         loadInitialData(storedConfigFileId)
 
         setContent {
@@ -117,7 +120,9 @@ class MainActivity : ComponentActivity() {
                             currentConfig = it
                             sessionManager.updateConfig(it)
                         },
-                        scannerViewModel = scannerViewModel
+                        scannerViewModel = scannerViewModel,
+                        billingViewModel = billingViewModel,
+                        configFileId = configFileId ?: "",
                     )
                 }
             }
@@ -157,8 +162,15 @@ class MainActivity : ComponentActivity() {
                 if (config != null) {
                     currentConfig = config
                     sessionManager.updateConfig(config)
-                    val success = sync.downloadAndParseExcel(config.activeDatabaseId)
-                    syncStatus = if (success) SyncStatus.HEALTHY else SyncStatus.ERROR
+                    val result = sync.downloadAndParseExcel(config.activeDatabaseId)
+                    if (result != null) {
+                        if (result.skippedRows.isNotEmpty()) {
+                            Log.w("MainActivity", "Sync completed with ${result.skippedRows.size} skipped rows: ${result.skippedRows}")
+                        }
+                        syncStatus = SyncStatus.HEALTHY
+                    } else {
+                        syncStatus = SyncStatus.ERROR
+                    }
                 } else {
                     syncStatus = SyncStatus.ERROR
                 }

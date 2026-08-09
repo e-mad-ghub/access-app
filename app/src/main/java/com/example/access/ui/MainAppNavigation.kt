@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.access.MainScannerViewModel
+import com.example.access.BillingViewModel
 import com.example.access.SyncStatus
 import com.example.access.data.Config
 import com.example.access.data.RecentScan
@@ -34,7 +35,9 @@ fun MainAppNavigation(
     onManualSync: () -> Unit,
     onRepairCloud: () -> Unit,
     onConfigUpdated: (Config) -> Unit,
-    scannerViewModel: MainScannerViewModel
+    scannerViewModel: MainScannerViewModel,
+    billingViewModel: BillingViewModel,
+    configFileId: String
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var sessionKey by remember { mutableIntStateOf(0) }
@@ -65,7 +68,8 @@ fun MainAppNavigation(
                 onSessionChanged = { 
                     sessionKey++ 
                     selectedTab = 0
-                }
+                },
+                onRequestElevation = { showSecretDialog = true }
             )
         },
         bottomBar = {
@@ -125,13 +129,18 @@ fun MainAppNavigation(
                         )
                     }
                     "Members" -> {
-                        MemberManagementScreen(config = currentConfig)
+                        MemberManagementScreen(
+                            config = currentConfig,
+                            billingViewModel = billingViewModel,
+                            configFileId = configFileId,
+                            onConfigUpdated = onConfigUpdated
+                        )
                     }
                     "Settings" -> {
                         AdminSettingsScreen(config = currentConfig, activeRole = activeRole)
                     }
                     "Owner" -> {
-                        OwnerDashboardScreen(config = currentConfig, onConfigUpdated = onConfigUpdated)
+                        OwnerDashboardScreen(config = currentConfig, billingViewModel = billingViewModel, configFileId = configFileId, onConfigUpdated = onConfigUpdated)
                     }
                 }
             }

@@ -25,6 +25,9 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.*
+data class ImportResult(val members: List<Member>, val skippedRows: List<Int>)
+
+
 
 class DriveSyncManager(
     private val context: Context,
@@ -202,14 +205,15 @@ class DriveSyncManager(
         }
     }
 
-    suspend fun downloadAndParseExcel(fileId: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun downloadAndParseExcel(fileId: String): ImportResult? = withContext(Dispatchers.IO) {
         try {
-            val bytes = downloadFileBytes(fileId) ?: return@withContext false
-            val members = WorkbookFactory.create(ByteArrayInputStream(bytes)).use { workbook ->
+            val bytes = downloadFileBytes(fileId) ?: return@withContext null
+            val result = WorkbookFactory.create(ByteArrayInputStream(bytes)).use { workbook ->
                 val sheet = workbook.getSheetAt(0)
                 val formatter = DataFormatter(Locale.US)
                 val parsed = mutableListOf<Member>()
                 val seenIds = mutableSetOf<String>()
+                val skippedRows = mutableListOf<Int>()
 
                 for (i in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(i) ?: continue
@@ -223,10 +227,23 @@ class DriveSyncManager(
                     // Ignore truly empty spreadsheet rows, but reject malformed
                     // member rows so a bad cloud file cannot wipe/poison the cache.
                     if (memberId.isBlank() && fullName.isBlank() && qrToken.isBlank()) continue
-                    require(memberId.isNotBlank()) { "Missing MemberID at Excel row ${i + 1}" }
-                    require(fullName.isNotBlank()) { "Missing FullName at Excel row ${i + 1}" }
-                    require(qrToken.isNotBlank()) { "Missing QRCodeHash at Excel row ${i + 1}" }
-                    require(seenIds.add(memberId)) { "Duplicate MemberID '$memberId' at Excel row ${i + 1}" }
+                    val rowNumber = i + 1
+                    if (memberId.isBlank()) {
+                        skippedRows.add(rowNumber)
+                        continue
+                    }
+                    if (fullName.isBlank()) {
+                        skippedRows.add(rowNumber)
+                        continue
+                    }
+                    if (qrToken.isBlank()) {
+                        skippedRows.add(rowNumber)
+                        continue
+                    }
+                    if (!seenIds.add(memberId)) {
+                        skippedRows.add(rowNumber)
+                        continue
+                    }
 
                     parsed += Member(
                         memberId = memberId,
@@ -240,16 +257,16 @@ class DriveSyncManager(
                         notes = cell(8).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
                     )
                 }
-                parsed
+                ImportResult(parsed, skippedRows)
             }
 
             // Cloud Excel is authoritative. A transaction removes members no
             // longer present, preventing revoked/deleted badges from staying valid.
-            db.memberDao().replaceAllMembers(members)
-            true
+            db.memberDao().replaceAllMembers(result.members)
+            result
         } catch (e: Exception) {
             Log.e("DriveSync", "downloadAndParseExcel failed", e)
-            false
+            null
         }
     }
 
@@ -314,13 +331,14 @@ class DriveSyncManager(
         }
     }
 
-    suspend fun importLocalSheet(inputStream: java.io.InputStream): Boolean = withContext(Dispatchers.IO) {
+    suspend fun importLocalSheet(inputStream: java.io.InputStream): ImportResult? = withContext(Dispatchers.IO) {
         try {
-            val members = WorkbookFactory.create(inputStream).use { workbook ->
+            val result = WorkbookFactory.create(inputStream).use { workbook ->
                 val sheet = workbook.getSheetAt(0)
                 val formatter = DataFormatter(Locale.US)
                 val parsed = mutableListOf<Member>()
                 val seenIds = mutableSetOf<String>()
+                val skippedRows = mutableListOf<Int>()
 
                 for (i in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(i) ?: continue
@@ -335,8 +353,9 @@ class DriveSyncManager(
                     val memberId = rawId.ifBlank {
                         "M-${UUID.randomUUID().toString().replace("-", "").uppercase()}"
                     }
-                    require(seenIds.add(memberId)) {
-                        "Duplicate MemberID '$memberId' at Excel row ${i + 1}"
+                    if (!seenIds.add(memberId)) {
+                        skippedRows.add(i + 1)
+                        continue
                     }
 
                     parsed += Member(
@@ -351,13 +370,13 @@ class DriveSyncManager(
                         notes = cell(8).takeIf(String::isNotBlank)
                     )
                 }
-                parsed
+                ImportResult(parsed, skippedRows)
             }
-            db.memberDao().replaceAllMembers(members)
-            true
+            db.memberDao().replaceAllMembers(result.members)
+            result
         } catch (e: Exception) {
             Log.e("DriveSync", "importLocalSheet failed", e)
-            false
+            null
         }
     }
 

@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.example.access.data.Config
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.ImportResult
 import com.example.access.util.SecurityUtils
 import com.example.access.util.SessionManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -54,11 +55,16 @@ fun AdminSettingsScreen(
                 val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
                 val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
                 context.contentResolver.openInputStream(it)?.use { stream ->
-                    sync.importLocalSheet(stream)
-                    sync.exportRoomToExcelAndUpload(config.activeDatabaseId)
+                    val result = sync.importLocalSheet(stream)
+                    if (result != null) {
+                        sync.exportRoomToExcelAndUpload(config.activeDatabaseId)
+                        val msg = if (result.skippedRows.isEmpty()) "Bulk Import Successful" else "Import completed with ${result.skippedRows.size} skipped rows: ${result.skippedRows}"
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Import failed", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 isBusy = false
-                Toast.makeText(context, "Bulk Import Successful", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -96,7 +102,7 @@ fun AdminSettingsScreen(
                     ) {
                         Icon(Icons.Default.AddLink, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Switch Hub", fontSize = 12.sp)
+                        Text("Switch Organization", fontSize = 12.sp)
                     }
                 }
             }

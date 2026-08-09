@@ -6,8 +6,13 @@ data class Config(
     val status: String = "active",
     val newConfigId: String? = null,
     val roleHashes: Map<String, String> = emptyMap(),
-    val branding: BrandingConfig = BrandingConfig()
-)
+    val branding: BrandingConfig = BrandingConfig(),
+    val tier: String = "free",
+    val proPurchaseToken: String? = null,
+    val proActivatedAt: String? = null
+) {
+    val isPro: Boolean get() = tier == "pro"
+}
 
 data class BrandingConfig(
     val organizationName: String = "EasyPass",

@@ -53,27 +53,28 @@ class SessionManager(val context: Context) {
         return role
     }
 
-    fun checkPassword(password: String): String? {
+    fun checkPasswordAll(password: String): List<String> {
         val config = currentConfig ?: run {
-            Log.e(TAG, "checkPassword failed: currentConfig is null")
-            return null
+            Log.e(TAG, "checkPasswordAll failed: currentConfig is null")
+            return emptyList()
         }
+        val matches = mutableListOf<String>()
+        if (SecurityUtils.verifyPassword(password, config.roleHashes["owner"])) {
+            matches.add(ROLE_OWNER)
+        }
+        if (SecurityUtils.verifyPassword(password, config.roleHashes["admin"])) {
+            matches.add(ROLE_ADMIN)
+        }
+        return matches
+    }
 
-        // Never log passwords or derived password material. verifyPassword supports
-        // both current salted PBKDF2 values and legacy SHA-256 organizations.
+    fun checkPassword(password: String): String? {
+        val matches = checkPasswordAll(password)
+        // Return owner if both match (backward compatibility), else first match or null
         return when {
-            SecurityUtils.verifyPassword(password, config.roleHashes["owner"]) -> {
-                Log.d(TAG, "Owner credential verified")
-                ROLE_OWNER
-            }
-            SecurityUtils.verifyPassword(password, config.roleHashes["admin"]) -> {
-                Log.d(TAG, "Admin credential verified")
-                ROLE_ADMIN
-            }
-            else -> {
-                Log.d(TAG, "Credential verification failed")
-                null
-            }
+            matches.contains(ROLE_OWNER) -> ROLE_OWNER
+            matches.contains(ROLE_ADMIN) -> ROLE_ADMIN
+            else -> null
         }
     }
 
