@@ -70,6 +70,7 @@ class DriveSyncManager(
     }
 
     private val EXCEL_COLUMNS = listOf("MemberID", "FullName", "Status", "QRCodeHash", "LastUpdated", "Phone", "Email", "Address", "Notes")
+    private val CONFIG_FOLDER_NAME = "EasyPass-configs"
     
     /**
      * Parses an Excel date string and converts it to ISO-8601 format.
@@ -122,6 +123,108 @@ class DriveSyncManager(
         }
     }
 
+    suspend fun getOrCreateConfigFolder(parentId: String): String? = withContext(Dispatchers.IO) {
+        try {
+            // First search for existing folder
+            val result = drive.files().list()
+                .setQ("name = '$CONFIG_FOLDER_NAME' and '$parentId' in parents and trashed = false")
+                .setSpaces("drive")
+                .setSupportsAllDrives(true)
+                .setFields("files(id,name)")
+                .execute()
+            val existing = result.files?.firstOrNull()
+            if (existing != null) return@withContext existing.id
+
+            // Create folder
+            val folder = com.google.api.services.drive.model.File().apply {
+                name = CONFIG_FOLDER_NAME
+                mimeType = "application/vnd.google-apps.folder"
+                parents = listOf(parentId)
+            }
+            val created = drive.files().create(folder)
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute()
+            return@withContext created.id
+        } catch (e: Exception) {
+            Log.e("DriveSync", "getOrCreateConfigFolder failed for parent $parentId", e)
+            null
+        }
+    }
+
+    suspend fun moveFileToFolder(fileId: String, newParentId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Get current parent(s)
+            val file = drive.files().get(fileId).setFields("parents").setSupportsAllDrives(true).execute()
+            val currentParents = file.parents ?: emptyList()
+            if (newParentId in currentParents) return@withContext true // already there
+
+            // Need at least one parent to remove; we'll remove the first parent (should be only one)
+            val parentToRemove = currentParents.firstOrNull() ?: return@withContext false
+
+            drive.files().update(fileId, null)
+                .setAddParents(newParentId)
+                .setRemoveParents(parentToRemove)
+                .setSupportsAllDrives(true)
+                .execute()
+            true
+        } catch (e: Exception) {
+            Log.e("DriveSync", "moveFileToFolder failed for file $fileId to parent $newParentId", e)
+            false
+        }
+    }
+
+    private suspend fun isConfigInConfigFolder(configId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val parentId = getParentId(configId) ?: return@withContext false
+            val parent = drive.files().get(parentId).setFields("name").setSupportsAllDrives(true).execute()
+            parent.name == CONFIG_FOLDER_NAME
+        } catch (e: Exception) {
+            Log.e("DriveSync", "isConfigInConfigFolder failed for config $configId", e)
+            false
+        }
+    }
+suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Check if already in config folder
+            if (isConfigInConfigFolder(configId)) {
+                Log.d("DriveSync", "Config $configId is already in config folder, no migration needed")
+                return@withContext true
+            }
+            
+            val config = downloadConfig(configId) ?: return@withContext false
+            val parentId = getParentId(configId) ?: return@withContext false
+            
+            // Get or create config folder in parent
+            val configFolderId = getOrCreateConfigFolder(parentId) ?: return@withContext false
+            
+            // Move config file to config folder
+            if (!moveFileToFolder(configId, configFolderId)) {
+                Log.e("DriveSync", "Failed to move config file to config folder")
+                return@withContext false
+            }
+            
+            // Move database file to config folder
+            if (!moveFileToFolder(config.activeDatabaseId, configFolderId)) {
+                Log.e("DriveSync", "Failed to move database file to config folder")
+                // Try to move config back? For now, just report failure
+                return@withContext false
+            }
+            
+            // Move logo file if exists
+            config.branding.logoFileId?.let { logoId ->
+                if (!moveFileToFolder(logoId, configFolderId)) {
+                    Log.w("DriveSync", "Failed to move logo file to config folder, continuing")
+                }
+            }
+            
+            Log.d("DriveSync", "Successfully migrated config $configId to config folder")
+            true
+        } catch (e: Exception) {
+            Log.e("DriveSync", "migrateToConfigFolder failed for config $configId", e)
+            false
+        }
+    }
     suspend fun getFolderName(fileId: String): String = withContext(Dispatchers.IO) {
         try {
             val file = drive.files().get(fileId).setFields("name, parents, trashed").execute()
@@ -161,27 +264,49 @@ class DriveSyncManager(
 
     suspend fun findConfigInFolder(folderId: String): String? = withContext(Dispatchers.IO) {
         try {
-            Log.d("DriveSync", "Searching for config.json in parent: $folderId")
-            val result = drive.files().list()
-                .setQ("name = 'config.json' and '$folderId' in parents and trashed = false")
+            Log.d("DriveSync", "Searching for config.json in folder: $folderId")
+            
+            // First, search inside CONFIG_FOLDER_NAME subfolder (new layout)
+            val configFolderResult = drive.files().list()
+                .setQ("name = '$CONFIG_FOLDER_NAME' and '$folderId' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false")
                 .setSpaces("drive")
+                .setSupportsAllDrives(true)
                 .setFields("files(id)")
                 .execute()
+            val configFolderId = configFolderResult.files?.firstOrNull()?.id
             
-            val foundId = result.files?.firstOrNull()?.id
+            if (configFolderId != null) {
+                val subfolderSearch = drive.files().list()
+                    .setQ("name = 'config.json' and '$configFolderId' in parents and trashed = false")
+                    .setSpaces("drive")
+                    .setSupportsAllDrives(true)
+                    .setFields("files(id)")
+                    .execute()
+                val foundId = subfolderSearch.files?.firstOrNull()?.id
+                if (foundId != null) return@withContext foundId
+            }
+            
+            // Fallback: search directly in parent folder (legacy layout)
+            val directResult = drive.files().list()
+                .setQ("name = 'config.json' and '$folderId' in parents and trashed = false")
+                .setSpaces("drive")
+                .setSupportsAllDrives(true)
+                .setFields("files(id)")
+                .execute()
+            val foundId = directResult.files?.firstOrNull()?.id
             if (foundId == null) {
                 Log.d("DriveSync", "Direct parent search failed, checking if $folderId is config.json itself")
                 try {
-                    val file = drive.files().get(folderId).setFields("name").execute()
+                    val file = drive.files().get(folderId).setFields("name").setSupportsAllDrives(true).execute()
                     if (file.name == "config.json") return@withContext folderId
                 } catch(e: Exception) {
                     Log.e("DriveSync", "Direct file check failed", e)
                 }
             }
             return@withContext foundId
-        } catch (e: Exception) { 
+        } catch (e: Exception) {
             Log.e("DriveSync", "findConfigInFolder overall failed for $folderId", e)
-            null 
+            null
         }
     }
 
@@ -300,10 +425,21 @@ class DriveSyncManager(
             EXCEL_COLUMNS.forEachIndexed { i, t -> header.createCell(i).setCellValue(t) }
             val excelFile = File(context.cacheDir, "initial_db.xlsx")
             FileOutputStream(excelFile).use { workbook.write(it) }
-            val uploadedExcel = drive.files().create(com.google.api.services.drive.model.File().apply { name = "database.xlsx"; parents = listOf(folderId) }, FileContent("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", excelFile)).setFields("id").execute()
+            val configFolderId = getOrCreateConfigFolder(folderId) ?: return@withContext null
+            val uploadedExcel = drive.files().create(com.google.api.services.drive.model.File().apply { 
+                name = "database.xlsx"; parents = listOf(configFolderId) 
+            }, FileContent("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", excelFile))
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute()
             val config = Config(activeDatabaseId = uploadedExcel.id, roleHashes = mapOf("admin" to adminHash, "owner" to ownerHash), lastUpdated = Instant.now().toString())
             val configFile = File(context.cacheDir, "initial_config.json").apply { writeText(gson.toJson(config)) }
-            val uploadedConfig = drive.files().create(com.google.api.services.drive.model.File().apply { name = "config.json"; parents = listOf(folderId) }, FileContent("application/json", configFile)).setFields("id").execute()
+            val uploadedConfig = drive.files().create(com.google.api.services.drive.model.File().apply { 
+                name = "config.json"; parents = listOf(configFolderId) 
+            }, FileContent("application/json", configFile))
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute()
             return@withContext uploadedConfig.id
         } catch (e: Exception) { 
             Log.e("DriveSync", "createInitialFiles failed", e)
@@ -383,26 +519,37 @@ class DriveSyncManager(
     suspend fun relocateFolder(oldConfigId: String, targetFolderId: String): String? = withContext(Dispatchers.IO) {
         try {
             val oldConfig = downloadConfig(oldConfigId) ?: return@withContext null
-            val newDb = drive.files().copy(oldConfig.activeDatabaseId, com.google.api.services.drive.model.File().apply { name = "database.xlsx"; parents = listOf(targetFolderId) }).execute()
+            val configFolderId = getOrCreateConfigFolder(targetFolderId) ?: return@withContext null
+            
+            val newDb = drive.files().copy(oldConfig.activeDatabaseId, com.google.api.services.drive.model.File().apply { 
+                name = "database.xlsx"; parents = listOf(configFolderId) 
+            }).setSupportsAllDrives(true).execute()
             var newLogoId: String? = null
             oldConfig.branding.logoFileId?.let { 
                 try { 
-                    newLogoId = drive.files().copy(it, com.google.api.services.drive.model.File().apply { name = "logo.png"; parents = listOf(targetFolderId) }).execute().id 
+                    newLogoId = drive.files().copy(it, com.google.api.services.drive.model.File().apply { 
+                        name = "logo.png"; parents = listOf(configFolderId) 
+                    }).setSupportsAllDrives(true).execute().id 
                 } catch (e: Exception) { 
                     Log.e("DriveSync", "Failed to copy logo file $it to new folder", e)
                 } 
             }
             val newConfig = oldConfig.copy(activeDatabaseId = newDb.id, branding = oldConfig.branding.copy(logoFileId = newLogoId))
             val tempConfigFile = File(context.cacheDir, "new_config.json").apply { writeText(gson.toJson(newConfig)) }
-            val uploadedNewConfigId = drive.files().create(com.google.api.services.drive.model.File().apply { name = "config.json"; parents = listOf(targetFolderId) }, FileContent("application/json", tempConfigFile)).setFields("id").execute().id
-            try { drive.files().delete(oldConfigId).execute() } catch(e: Exception) {
+            val uploadedNewConfigId = drive.files().create(com.google.api.services.drive.model.File().apply { 
+                name = "config.json"; parents = listOf(configFolderId) 
+            }, FileContent("application/json", tempConfigFile))
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute().id
+            try { drive.files().delete(oldConfigId).setSupportsAllDrives(true).execute() } catch(e: Exception) {
                 Log.e("DriveSync", "Failed to delete old config file $oldConfigId", e)
             }
-            try { drive.files().delete(oldConfig.activeDatabaseId).execute() } catch(e: Exception) {
+            try { drive.files().delete(oldConfig.activeDatabaseId).setSupportsAllDrives(true).execute() } catch(e: Exception) {
                 Log.e("DriveSync", "Failed to delete old database file ${oldConfig.activeDatabaseId}", e)
             }
             oldConfig.branding.logoFileId?.let { 
-                try { drive.files().delete(it).execute() } catch(e: Exception) {
+                try { drive.files().delete(it).setSupportsAllDrives(true).execute() } catch(e: Exception) {
                     Log.e("DriveSync", "Failed to delete old logo file $it", e)
                 }
             }
