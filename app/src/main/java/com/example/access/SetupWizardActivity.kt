@@ -40,6 +40,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.services.drive.DriveScopes
@@ -71,7 +72,7 @@ class SetupWizardActivity : ComponentActivity() {
                 googleAccount = task.getResult(ApiException::class.java)
                 checkDriveForExistingSetup()
             } catch (e: ApiException) {
-                errorMessage = "Google login failed."
+                errorMessage = "Google login failed (${e.statusCode}: ${CommonStatusCodes.getStatusCodeString(e.statusCode)})."
             }
         }
     }

@@ -80,7 +80,7 @@ fun PaywallDialog(
                         Text(
                             productDetails?.subscriptionOfferDetails?.firstOrNull()?.pricingPhases
                                 ?.pricingPhaseList?.firstOrNull()?.formattedPrice
-                                ?: "$4.99/month",
+                                ?: "Price loading",
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.Black,
                             color = MaterialTheme.colorScheme.primary

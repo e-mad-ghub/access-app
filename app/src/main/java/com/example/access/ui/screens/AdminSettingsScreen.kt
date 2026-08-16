@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.easyapps.easypass.BuildConfig
 import com.example.access.data.Config
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.ImportResult
@@ -153,7 +154,11 @@ fun AdminSettingsScreen(
         }
         
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text("EasyPass v1.0 Production", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+            Text(
+                "EasyPass v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.LightGray
+            )
         }
         
         Spacer(modifier = Modifier.height(100.dp))

@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.sp
 import com.example.access.util.SessionManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import com.google.api.services.drive.DriveScopes
 
@@ -66,13 +68,18 @@ fun PasswordElevationDialog(
 ) {
     val context = LocalContext.current
     val signInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        val account = GoogleSignIn.getLastSignedInAccount(context)
-        if (account != null) {
+        val signInError = try {
+            GoogleSignIn.getSignedInAccountFromIntent(it.data).getResult(ApiException::class.java)
+            null
+        } catch (e: ApiException) {
+            "${e.statusCode}: ${CommonStatusCodes.getStatusCodeString(e.statusCode)}"
+        }
+        if (signInError == null && GoogleSignIn.getLastSignedInAccount(context) != null) {
             val role = sessionManager.applyPendingRole()
             Toast.makeText(context, "Elevated to ${role?.uppercase()}", Toast.LENGTH_SHORT).show()
         } else {
             sessionManager.setPendingRole(null)
-            Toast.makeText(context, "Identity Verification Failed", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Identity Verification Failed${signInError?.let { error -> " ($error)" } ?: ""}", Toast.LENGTH_LONG).show()
         }
         onSessionChanged()
     }
