@@ -76,7 +76,7 @@ object QrBadgeExporter {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
 
-        val uri = FileProvider.getUriForFile(context, "com.example.access.fileprovider", file)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)

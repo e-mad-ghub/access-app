@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import com.easyapps.easypass.R
 import com.example.access.ui.components.LoadingOverlay
 import com.example.access.ui.components.secretElevation
 import com.example.access.util.DriveSyncManager

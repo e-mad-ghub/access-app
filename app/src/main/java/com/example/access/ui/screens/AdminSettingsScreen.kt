@@ -121,7 +121,7 @@ fun AdminSettingsScreen(
                                 val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
                                 val file = sync.exportLocalBackup()
                                 file?.let {
-                                    val uri = FileProvider.getUriForFile(context, "com.example.access.fileprovider", it)
+                                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it)
                                     val intent = Intent(Intent.ACTION_SEND).apply {
                                         type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                         putExtra(Intent.EXTRA_STREAM, uri)

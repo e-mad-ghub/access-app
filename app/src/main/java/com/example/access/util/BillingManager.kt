@@ -38,11 +38,11 @@ class BillingManager(context: Context) : PurchasesUpdatedListener, BillingClient
     init {
         billingClient.startConnection(this)
     }
-    
+
     override fun onBillingSetupFinished(billingResult: BillingResult) {
         if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
             Log.d(TAG, "Billing connected")
-            queryProductDetails()
+            verifyProductDetailsSupportAndQuery()
             queryExistingPurchases()
         } else {
             Log.e(TAG, "Billing setup failed: ${billingResult.debugMessage}")
@@ -152,7 +152,18 @@ class BillingManager(context: Context) : PurchasesUpdatedListener, BillingClient
         purchases.firstOrNull { it.products.contains(SUBSCRIPTION_PRODUCT_ID) }
             ?.let { acknowledgePurchase(it) }
     }
-    
+
+    private fun verifyProductDetailsSupportAndQuery() {
+        val billingResult = billingClient.isFeatureSupported(BillingClient.FeatureType.PRODUCT_DETAILS)
+        if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
+            queryProductDetails()
+        } else {
+            val message = "Product details unsupported: ${billingResult.debugMessage}"
+            Log.e(TAG, message)
+            _billingState.value = BillingState.ERROR(message)
+        }
+    }
+
     private fun queryProductDetails() {
         val productList = listOf(
             QueryProductDetailsParams.Product.newBuilder()
@@ -164,18 +175,39 @@ class BillingManager(context: Context) : PurchasesUpdatedListener, BillingClient
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(productList)
             .build()
-        
+
         billingClient.queryProductDetailsAsync(params) { billingResult, queryProductDetailsResult ->
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                _productDetails.value = queryProductDetailsResult.productDetailsList
+                val matchedProduct = queryProductDetailsResult.productDetailsList
                     .firstOrNull { it.productId == SUBSCRIPTION_PRODUCT_ID }
-                if (_productDetails.value != null) {
+                _productDetails.value = matchedProduct
+                if (matchedProduct != null) {
                     _billingState.value = BillingState.READY
                 } else {
-                    _billingState.value = BillingState.ERROR("Product not found")
+                    val unfetched = queryProductDetailsResult.unfetchedProductList
+                        .firstOrNull { it.productId == SUBSCRIPTION_PRODUCT_ID }
+                    val message = buildString {
+                        append("Product ")
+                        append(SUBSCRIPTION_PRODUCT_ID)
+                        append(" unavailable")
+                        if (unfetched != null) {
+                            append(" (status=")
+                            append(unfetched.statusCode)
+                            append(")")
+                        }
+                        append(". Verify the Play Console product id, package name, and that the subscription/base plan is active.")
+                    }
+                    Log.e(
+                        TAG,
+                        "queryProductDetails returned no match for $SUBSCRIPTION_PRODUCT_ID. " +
+                            "unfetched=${queryProductDetailsResult.unfetchedProductList}"
+                    )
+                    _billingState.value = BillingState.ERROR(message)
                 }
             } else {
-                _billingState.value = BillingState.ERROR(billingResult.debugMessage)
+                val message = "Product query failed: ${billingResult.debugMessage}"
+                Log.e(TAG, message)
+                _billingState.value = BillingState.ERROR(message)
             }
         }
     }
