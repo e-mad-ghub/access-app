@@ -14,8 +14,11 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -93,27 +96,72 @@ fun KioskScannerScreen(viewModel: MainScannerViewModel) {
         }
 
         activeScan?.let { scan ->
+            val statusColor = if (scan.isGranted) Color(0xFF00BFA5) else Color(0xFFD32F2F)
+            val statusText = if (scan.isGranted) "ACCESS GRANTED" else "ACCESS DENIED"
             Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp),
-                color = if (scan.isGranted) Color(0xFF00BFA5) else Color(0xFFD32F2F),
-                shape = RoundedCornerShape(20.dp),
-                shadowElevation = 8.dp
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 28.dp),
+                color = Color.White,
+                shape = RoundedCornerShape(28.dp),
+                shadowElevation = 12.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    Surface(
+                        color = statusColor.copy(alpha = 0.12f),
+                        shape = CircleShape,
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                if (scan.isGranted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                contentDescription = null,
+                                tint = statusColor,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                    }
                     Text(
                         scan.name,
-                        color = Color.White,
+                        color = Color(0xFF102A2D),
                         fontWeight = FontWeight.Black,
-                        fontSize = 18.sp
+                        fontSize = 30.sp,
+                        lineHeight = 34.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                     Text(
-                        if (scan.isGranted) "ACCESS GRANTED" else "ACCESS DENIED",
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        "$statusText • ${scan.time}",
+                        color = statusColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        if (scan.isGranted) "Verified member pass" else "This pass is not currently valid",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Button(
+                        onClick = { viewModel.dismissActiveScanResult() },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = statusColor)
+                    ) {
+                        Text(
+                            "Scan Next",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 16.sp
+                        )
+                    }
+                    Text(
+                        "Scanning is paused until this result is closed.",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.labelSmall
                     )
                 }
             }
