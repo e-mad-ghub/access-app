@@ -475,35 +475,76 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 val parsed = mutableListOf<Member>()
                 val seenIds = mutableSetOf<String>()
                 val skippedRows = mutableListOf<Int>()
+                val headerRow = sheet.getRow(0)
+
+                fun normalizedHeader(value: String): String =
+                    value.lowercase(Locale.US).replace(Regex("[^a-z0-9]"), "")
+
+                fun headerIndex(vararg names: String): Int? {
+                    if (headerRow == null) return null
+                    val wanted = names.map(::normalizedHeader).toSet()
+                    for (cellIndex in 0 until headerRow.lastCellNum.coerceAtLeast(0)) {
+                        val header = normalizedHeader(formatter.formatCellValue(headerRow.getCell(cellIndex)))
+                        if (header in wanted) return cellIndex
+                    }
+                    return null
+                }
+
+                val nameIndex = headerIndex("Name", "FullName", "Full Name", "Member Name")
+                val phoneIndex = headerIndex("Phone", "Phone Number", "Mobile", "Mobile Number")
+                val emailIndex = headerIndex("Email", "Email Address")
+                val addressIndex = headerIndex("Address")
+                val notesIndex = headerIndex("Notes", "Note", "Comments")
+                val statusIndex = headerIndex("Status")
+                val memberIdIndex = headerIndex("MemberID", "Member ID")
+                val qrTokenIndex = headerIndex("QRCodeHash", "QR Code Hash", "QR Token")
+                val lastUpdatedIndex = headerIndex("LastUpdated", "Last Updated")
+
+                fun uniqueMemberId(): String {
+                    while (true) {
+                        val candidate = "M-${UUID.randomUUID().toString().replace("-", "").take(24).uppercase(Locale.US)}"
+                        if (seenIds.add(candidate)) return candidate
+                    }
+                }
 
                 for (i in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(i) ?: continue
-                    fun cell(index: Int): String =
-                        formatter.formatCellValue(row.getCell(index)).trim()
+                    fun cell(index: Int?): String =
+                        index?.let { formatter.formatCellValue(row.getCell(it)).trim() }.orEmpty()
 
-                    val rawId = cell(0)
-                    val fullName = cell(1)
-                    val rawToken = cell(3)
-                    if (rawId.isBlank() && fullName.isBlank() && rawToken.isBlank()) continue
+                    val fullName = if (nameIndex != null) cell(nameIndex) else cell(1)
+                    val phone = if (nameIndex != null) cell(phoneIndex) else cell(5)
+                    val email = if (nameIndex != null) cell(emailIndex) else cell(6)
+                    val address = if (nameIndex != null) cell(addressIndex) else cell(7)
+                    val notes = if (nameIndex != null) cell(notesIndex) else cell(8)
 
-                    val memberId = rawId.ifBlank {
-                        "M-${UUID.randomUUID().toString().replace("-", "").uppercase()}"
-                    }
-                    if (!seenIds.add(memberId)) {
+                    if (fullName.isBlank() && phone.isBlank() && email.isBlank() && address.isBlank() && notes.isBlank()) continue
+                    if (fullName.isBlank()) {
                         skippedRows.add(i + 1)
                         continue
                     }
 
+                    val importedId = cell(memberIdIndex)
+                    val memberId = if (importedId.isNotBlank()) {
+                        if (!seenIds.add(importedId)) {
+                            skippedRows.add(i + 1)
+                            continue
+                        }
+                        importedId
+                    } else {
+                        uniqueMemberId()
+                    }
+
                     parsed += Member(
                         memberId = memberId,
-                        fullName = fullName.ifBlank { "Imported User" },
-                        status = cell(2).ifBlank { "Active" },
-                        qrCodeHash = rawToken.ifBlank { SecurityUtils.generateSecureQrToken() },
-                        lastUpdated = parseExcelDate(cell(4)),
-                        phone = cell(5).takeIf(String::isNotBlank),
-                        email = cell(6).takeIf(String::isNotBlank),
-                        address = cell(7).takeIf(String::isNotBlank),
-                        notes = cell(8).takeIf(String::isNotBlank)
+                        fullName = fullName,
+                        status = cell(statusIndex).ifBlank { "Active" },
+                        qrCodeHash = cell(qrTokenIndex).ifBlank { SecurityUtils.generateSecureQrToken() },
+                        lastUpdated = cell(lastUpdatedIndex).takeIf(String::isNotBlank)?.let(::parseExcelDate) ?: Instant.now().toString(),
+                        phone = phone.takeIf(String::isNotBlank),
+                        email = email.takeIf(String::isNotBlank),
+                        address = address.takeIf(String::isNotBlank),
+                        notes = notes.takeIf(String::isNotBlank)
                     )
                 }
                 ImportResult(parsed, skippedRows)

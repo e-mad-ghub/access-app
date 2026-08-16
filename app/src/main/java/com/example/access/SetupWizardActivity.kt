@@ -186,7 +186,28 @@ class SetupWizardActivity : ComponentActivity() {
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Welcome to the world's most effortless membership system.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, color = Color.DarkGray)
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDFA)), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Default.Info, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Google sign-in is only needed when creating or managing an organization, so EasyPass can write your shared database to Google Drive.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF006064)
+                        )
+                    }
+                    Text(
+                        "Members who join with an invitation link can connect without signing in.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
             
             Button(
                 onClick = {
@@ -198,7 +219,7 @@ class SetupWizardActivity : ComponentActivity() {
             ) {
                 Icon(Icons.Default.CloudUpload, null)
                 Spacer(Modifier.width(12.dp))
-                Text("Setup New Organization", fontWeight = FontWeight.Black)
+                Text("Sign in & Setup Organization", fontWeight = FontWeight.Black)
             }
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -278,7 +299,7 @@ class SetupWizardActivity : ComponentActivity() {
     fun PasswordStep() {
         Column {
             Text("Security Profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Set private keys to authorize management actions.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Set private keys to authorize management actions. These keys stay separate from your Google account.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(modifier = Modifier.height(32.dp))
             OutlinedTextField(value = adminPass, onValueChange = { adminPass = it }, label = { Text("New Admin Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
             Spacer(modifier = Modifier.height(16.dp))
@@ -295,7 +316,7 @@ class SetupWizardActivity : ComponentActivity() {
         Column {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
             Text("Data Storage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Paste your shared Google Drive folder URL.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Paste the Google Drive folder where EasyPass can store the organization database.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(Modifier.height(32.dp))
             OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Folder Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), placeholder = { Text("https://drive.google.com/...") })
             Spacer(modifier = Modifier.height(24.dp))
@@ -303,7 +324,7 @@ class SetupWizardActivity : ComponentActivity() {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
                     Icon(Icons.Default.Info, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("Public Visibility: Ensure folder is shared as 'Editor' for 'Anyone with the link'.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
+                    Text("EasyPass writes only its organization files in this folder. Share it as 'Editor' so authorized devices can sync updates.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
                 }
             }
             Spacer(modifier = Modifier.height(48.dp))
@@ -342,6 +363,13 @@ class SetupWizardActivity : ComponentActivity() {
             Spacer(modifier = Modifier.height(24.dp))
             Text("Ready for Launch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text(selectedFolderName.uppercase(), fontWeight = FontWeight.Black, color = Color(0xFF00BFA5), fontSize = 20.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                "This Google Drive folder will become the shared source of truth for your organization's members, settings, and Pro status.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray,
+                textAlign = TextAlign.Center
+            )
             Spacer(modifier = Modifier.height(48.dp))
             Button(
                 onClick = {

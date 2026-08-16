@@ -136,7 +136,7 @@ fun OwnerDashboardScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        if (config.isPro) "All premium features unlocked" else "Upgrade to unlock premium features",
+                        if (config.isPro) "Organization-wide Pro access is active" else "Upgrade once for this organization",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -168,6 +168,11 @@ fun OwnerDashboardScreen(
                     shape = RoundedCornerShape(12.dp),
                     enabled = config.isPro
                 ) { Text(if (config.isPro) "Update Logo" else "Update Logo (Pro only)") }
+                Text(
+                    "Branding changes are written to the shared Google Drive database so connected devices stay consistent.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
                 OutlinedTextField(value = orgName, onValueChange = { orgName = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     palettes.forEach { palette ->
@@ -245,6 +250,11 @@ fun OwnerDashboardScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Storage, null, tint = Color.Gray); Spacer(Modifier.width(12.dp)); Text(activeFolderName, fontWeight = FontWeight.Bold)
                 }
+                Text(
+                    "This folder holds the EasyPass organization database. Owner changes need Google Drive access so the database can be updated safely.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
                 OutlinedTextField(value = folderLink, onValueChange = { folderLink = it }, label = { Text("Migrate Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Button(
                     onClick = {

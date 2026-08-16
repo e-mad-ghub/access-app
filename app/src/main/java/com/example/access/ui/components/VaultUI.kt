@@ -93,7 +93,7 @@ fun PasswordElevationDialog(
             val account = GoogleSignIn.getLastSignedInAccount(context)
             if (account == null) {
                 sessionManager.setPendingRole(role)
-                Toast.makeText(context, "Login required for write access", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Google sign-in is required to write organization changes to Drive.", Toast.LENGTH_LONG).show()
                 val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                     .requestEmail()
                     .requestScopes(Scope(DriveScopes.DRIVE))
@@ -263,15 +263,22 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Vault Unlock", fontWeight = FontWeight.Black) },
         text = {
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Security Key") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Admin and Owner sessions can change the shared organization database. If you are not signed in, EasyPass will ask for Google access before writing changes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Security Key") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         },
         confirmButton = { 
             Button(

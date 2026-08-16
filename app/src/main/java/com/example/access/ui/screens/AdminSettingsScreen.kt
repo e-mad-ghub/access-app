@@ -113,6 +113,11 @@ fun AdminSettingsScreen(
             Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("Data Management", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Bulk import accepts an Excel sheet with headers: Name, Phone, Email, Address, Notes. EasyPass creates member IDs, QR codes, status, and timestamps automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
                     
                     OutlinedButton(
                         onClick = {

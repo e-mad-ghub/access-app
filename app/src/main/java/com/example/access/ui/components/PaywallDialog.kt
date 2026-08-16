@@ -55,7 +55,7 @@ fun PaywallDialog(
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    "Unlock unlimited members, custom branding, and advanced features.",
+                    "Upgrade the whole organization. Pro status is saved to the shared EasyPass database and applies to every device connected to this organization.",
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -86,7 +86,7 @@ fun PaywallDialog(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            productDetails?.description ?: "Monthly subscription, cancel anytime.",
+                            productDetails?.description ?: "Monthly organization subscription, cancel anytime.",
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center
                         )
@@ -123,7 +123,7 @@ fun PaywallDialog(
                     Text("Maybe Later")
                 }
                 Text(
-                    "Your subscription will sync across all devices in your organization.",
+                    "The purchase is made with your Google Play account, but the Pro access belongs to this EasyPass organization. Your payment details are handled by Google Play and are not stored in EasyPass.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     textAlign = TextAlign.Center

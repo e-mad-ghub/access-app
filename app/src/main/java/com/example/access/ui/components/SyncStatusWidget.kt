@@ -42,7 +42,7 @@ fun SyncStatusWidget(
         ) {
             Column {
                 Text(
-                    text = if (isSyncing) "Syncing with Google Drive..." else "Cloud Database Synced",
+                    text = if (isSyncing) "Updating organization database..." else "Organization database synced",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                 )
