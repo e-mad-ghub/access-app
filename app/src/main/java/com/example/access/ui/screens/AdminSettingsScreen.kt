@@ -29,6 +29,12 @@ import androidx.core.content.FileProvider
 import com.easyapps.easypass.BuildConfig
 import com.example.access.data.AppDatabase
 import com.example.access.data.Config
+import com.example.access.ui.components.ProfessionalActionRow
+import com.example.access.ui.components.ProfessionalInfoText
+import com.example.access.ui.components.ProfessionalPageHeader
+import com.example.access.ui.components.ProfessionalScreen
+import com.example.access.ui.components.ProfessionalSectionCard
+import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.FREE_TIER_MEMBER_LIMIT
 import com.example.access.util.ImportMode
@@ -43,7 +49,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun AdminSettingsScreen(
     config: Config,
-    activeRole: String
+    activeRole: String,
+    onLeaveOrganization: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -51,6 +58,8 @@ fun AdminSettingsScreen(
     
     var showInviteDialog by remember { mutableStateOf(false) }
     var showJoinDialog by remember { mutableStateOf(false) }
+    var showLeaveDialog by remember { mutableStateOf(false) }
+    var signOutGoogleOnLeave by remember { mutableStateOf(false) }
     var pendingImport by remember { mutableStateOf<ImportResult?>(null) }
     var importMode by remember { mutableStateOf(ImportMode.ADD) }
     val db = remember { AppDatabase.getDatabase(context) }
@@ -91,123 +100,139 @@ fun AdminSettingsScreen(
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    ProfessionalScreen(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp)) {
+        ProfessionalPageHeader(
+            title = "Settings",
+            subtitle = "Manage this device, organization access, and shared data tools."
+        )
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+        ProfessionalSectionCard(
+            title = "Organization",
+            subtitle = "Connect this device to the right EasyPass database.",
+            icon = Icons.Default.Business
         ) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Connections", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (activeRole != SessionManager.ROLE_SCANNER) {
-                        Button(
-                            onClick = { showInviteDialog = true },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Share, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Invite", fontSize = 12.sp)
+            if (activeRole != SessionManager.ROLE_SCANNER) {
+                ProfessionalActionRow(
+                    icon = Icons.Default.Share,
+                    title = "Invite staff",
+                    body = "Create a secure invite link for another device.",
+                    onClick = { showInviteDialog = true }
+                )
+            }
+            ProfessionalActionRow(
+                icon = Icons.Default.AddLink,
+                title = "Switch organization",
+                body = "Use an invitation link to connect this device to another organization.",
+                onClick = { showJoinDialog = true }
+            )
+            ProfessionalActionRow(
+                icon = Icons.Default.Logout,
+                title = "Leave organization",
+                body = "Disconnect this device and return to setup. Drive files stay untouched.",
+                destructive = true,
+                onClick = { showLeaveDialog = true }
+            )
+        }
+
+        ProfessionalSectionCard(
+            title = "Role access",
+            subtitle = "Current device mode: ${activeRole.uppercase()}",
+            icon = Icons.Default.AdminPanelSettings
+        ) {
+            RoleInfoRow(Icons.Default.QrCodeScanner, "Scanner", "READ ONLY", "Scan passes only. No import, export, billing, or database editing.")
+            HorizontalDivider(color = Color(0xFFE4E7EC))
+            RoleInfoRow(Icons.Default.AdminPanelSettings, "Admin", "MANAGE DATA", "Manage members and import/export organization data.")
+            HorizontalDivider(color = Color(0xFFE4E7EC))
+            RoleInfoRow(Icons.Default.VpnKey, "Owner", "FULL CONTROL", "Manage billing, branding, organization settings, and access keys.")
+        }
+
+        if (activeRole != SessionManager.ROLE_SCANNER) {
+            ProfessionalSectionCard(
+                title = "Data management",
+                subtitle = "Import, export, and preview spreadsheet changes before updating Drive.",
+                icon = Icons.Default.Storage
+            ) {
+                ProfessionalInfoText("Customer imports need headers: Name, Phone, Email, Address, Notes.")
+
+                ProfessionalActionRow(
+                    icon = Icons.Default.Download,
+                    title = "Export EasyPass backup",
+                    body = "Download a full app backup spreadsheet.",
+                    onClick = {
+                        scope.launch {
+                            val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@launch
+                            val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+                            val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
+                            val file = sync.exportLocalBackup(config.isPro)
+                            file?.let { shareSpreadsheet(it, "Share EasyPass Backup") }
                         }
                     }
-                    
-                    OutlinedButton(
-                        onClick = { showJoinDialog = true },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.AddLink, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Switch Organization", fontSize = 12.sp)
+                )
+
+                ProfessionalActionRow(
+                    icon = Icons.Default.Description,
+                    title = "Download import template",
+                    body = "Create a blank spreadsheet with the supported import columns.",
+                    onClick = {
+                        scope.launch {
+                            val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@launch
+                            val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+                            val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
+                            sync.exportImportTemplate()?.let { shareSpreadsheet(it, "Share Import Template") }
+                        }
                     }
-                }
+                )
+
+                ProfessionalActionRow(
+                    icon = Icons.Default.Upload,
+                    title = "Bulk import spreadsheet",
+                    body = "Preview valid, skipped, and duplicate rows before updating.",
+                    onClick = { importLauncher.launch("*/*") }
+                )
             }
         }
 
-        if (activeRole != SessionManager.ROLE_SCANNER) {
-            Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Data Management", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "Import and export Excel files safely. Preview changes before updating your shared database. Customer imports need headers: Name, Phone, Email, Address, Notes.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
-                    )
-                    
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@launch
-                                val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
-                                val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
-                                val file = sync.exportLocalBackup(config.isPro)
-                                file?.let { shareSpreadsheet(it, "Share EasyPass Backup") }
-                            }
-                        }, 
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Download, null)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Export EasyPass Backup")
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@launch
-                                val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
-                                val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
-                                sync.exportImportTemplate()?.let { shareSpreadsheet(it, "Share Import Template") }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Description, null)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Download Import Template")
-                    }
-
-                    OutlinedButton(
-                        onClick = { importLauncher.launch("*/*") }, 
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Upload, null)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Bulk Import Spreadsheet")
-                    }
-                }
-            }
-        }
-
-        if (activeRole != SessionManager.ROLE_SCANNER) {
-            Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Roles & Access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    RoleInfoRow(Icons.Default.QrCodeScanner, "Scanner", "Scan passes only. No import, export, billing, or database editing.")
-                    RoleInfoRow(Icons.Default.AdminPanelSettings, "Admin", "Manage members and import/export organization data.")
-                    RoleInfoRow(Icons.Default.VpnKey, "Owner", "Manage billing, branding, organization settings, and access keys.")
-                }
-            }
-        }
-        
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
                 "EasyPass v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.LightGray
+                color = Color(0xFF98A2B3)
             )
         }
-        
-        Spacer(modifier = Modifier.height(100.dp))
+
+        Spacer(modifier = Modifier.height(84.dp))
+    }
+
+    if (showLeaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showLeaveDialog = false },
+            icon = { Icon(Icons.Default.Logout, null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Leave Organization?", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("This device will disconnect from the current EasyPass organization. The shared database in Google Drive will not be deleted.")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = signOutGoogleOnLeave,
+                            onCheckedChange = { signOutGoogleOnLeave = it }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Also sign out of Google on this device", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { onLeaveOrganization(signOutGoogleOnLeave) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Leave Organization")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     pendingImport?.let { result ->
@@ -374,12 +399,24 @@ fun AdminSettingsScreen(
 }
 
 @Composable
-private fun RoleInfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
-    Row(verticalAlignment = Alignment.Top) {
+private fun RoleInfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, label: String, body: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.Top
+    ) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
-        Column {
-            Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                ProfessionalStatusChip(label, Color(0xFF667085))
+            }
             Text(body, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
     }

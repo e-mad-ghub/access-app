@@ -181,78 +181,89 @@ fun PasswordElevationDialog(
 
 @Composable
 fun ScannerBanner(onChangeSession: () -> Unit) {
+    val bannerColor = roleBannerColor(SessionManager.ROLE_SCANNER)
     Surface(
-        color = MaterialTheme.colorScheme.secondary,
+        color = bannerColor,
+        shadowElevation = 1.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape))
+                Box(modifier = Modifier.size(8.dp).background(Color.White.copy(alpha = 0.9f), CircleShape))
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = "MODE: SCANNER",
                     color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 10.sp,
-                    letterSpacing = 1.2.sp
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp
                 )
             }
             Surface(
                 onClick = onChangeSession,
-                color = Color.White.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(8.dp)
+                color = Color.White.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
                     "CHANGE SESSION",
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
     }
 }
-    @Composable
+
+@Composable
 fun ElevatedBanner(role: String, onEndSession: () -> Unit) {
+    val bannerColor = roleBannerColor(role)
     Surface(
-        color = MaterialTheme.colorScheme.primary,
+        color = bannerColor,
+        shadowElevation = 1.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape))
+                Box(modifier = Modifier.size(8.dp).background(Color.White.copy(alpha = 0.9f), CircleShape))
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = "MANAGEMENT: ${role.uppercase()}",
                     color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 10.sp,
-                    letterSpacing = 1.2.sp
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp
                 )
             }
             Surface(
                 onClick = onEndSession,
-                color = Color.White.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(8.dp)
+                color = Color.White.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
                     "EXIT SESSION",
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
+    }
+}
+
+private fun roleBannerColor(role: String): Color {
+    return when (role) {
+        SessionManager.ROLE_OWNER -> Color(0xFF1D4ED8)
+        SessionManager.ROLE_ADMIN -> Color(0xFF047857)
+        else -> Color(0xFF98A2B3)
     }
 }
 

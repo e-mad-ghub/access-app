@@ -74,7 +74,7 @@ fun InitialSplashLoader() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
-                painter = painterResource(id = R.drawable.ic_pass_logo),
+                painter = painterResource(id = R.drawable.easypass_logo),
                 contentDescription = null,
                 modifier = Modifier
                     .size(100.dp)

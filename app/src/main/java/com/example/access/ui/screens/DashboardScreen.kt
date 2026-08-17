@@ -22,6 +22,11 @@ import coil.compose.AsyncImage
 import com.example.access.SyncStatus
 import com.example.access.data.Config
 import com.example.access.data.RecentScan
+import com.example.access.ui.components.ProfessionalActionRow
+import com.example.access.ui.components.ProfessionalPageHeader
+import com.example.access.ui.components.ProfessionalScreen
+import com.example.access.ui.components.ProfessionalSectionCard
+import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.ui.components.secretElevation
 
 @Composable
@@ -48,142 +53,121 @@ fun DashboardScreen(
         SyncStatus.ERROR -> "Changes may not upload until connection is restored."
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // --- PREMIUM HERO SECTION ---
-        Box(modifier = Modifier.fillMaxWidth().height(220.dp)) {
-            // Background Gradient
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(primaryColor, primaryColor.copy(alpha = 0.85f), Color(0xFF00363a))
-                        )
-                    )
-            )
-            
-            Column(
-                modifier = Modifier
-                    .padding(24.dp)
-                    .align(Alignment.TopStart)
-            ) {
-                Text(
-                    text = "Welcome back,",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.7f)
-                )
-                
-                // SECRET GESTURE: Tap organization name 5 times to elevate
-                Text(
-                    text = config.branding.organizationName,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Black,
+    ProfessionalScreen(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp)) {
+        ProfessionalPageHeader(
+            title = config.branding.organizationName,
+            subtitle = "Welcome back. Review access status and recent scanner activity.",
+            modifier = Modifier.secretElevation(onTriggerSecret),
+            action = {
+                Surface(
+                    modifier = Modifier.size(54.dp),
+                    shape = CircleShape,
                     color = Color.White,
-                    letterSpacing = (-1).sp,
-                    modifier = Modifier.secretElevation(onTriggerSecret)
-                )
-                
-                Spacer(modifier = Modifier.height(20.dp))
-                
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DashboardPill(
-                        label = "$memberCount Members",
-                        icon = Icons.Default.People,
-                        containerColor = Color.White.copy(alpha = 0.15f)
-                    )
-                    DashboardPill(
-                        label = if (syncStatus == SyncStatus.HEALTHY) "Synced" else if (syncStatus == SyncStatus.SYNCING) "Syncing" else "Offline",
-                        icon = if (syncStatus == SyncStatus.HEALTHY) Icons.Default.CloudDone else Icons.Default.CloudOff,
-                        containerColor = if (syncStatus == SyncStatus.ERROR) Color.Black.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.15f)
-                    )
-                }
-            }
-
-            // FLOATING BRAND CIRCLE
-            Surface(
-                modifier = Modifier
-                    .size(86.dp)
-                    .align(Alignment.BottomEnd)
-                    .offset(x = (-24).dp, y = 32.dp),
-                shape = CircleShape,
-                color = Color.White,
-                shadowElevation = 8.dp
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    if (config.branding.logoFileId != null) {
-                        AsyncImage(
-                            model = "https://lh3.googleusercontent.com/u/0/d/${config.branding.logoFileId}",
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(Icons.Default.Business, null, tint = primaryColor, modifier = Modifier.size(32.dp))
+                    shadowElevation = 1.dp
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (config.branding.logoFileId != null) {
+                            AsyncImage(
+                                model = "https://lh3.googleusercontent.com/u/0/d/${config.branding.logoFileId}",
+                                contentDescription = null,
+                                modifier = Modifier.size(34.dp).clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(Icons.Default.Business, null, tint = primaryColor, modifier = Modifier.size(26.dp))
+                        }
                     }
                 }
             }
+        )
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            DashboardMetricCard(
+                label = "Members",
+                value = memberCount.toString(),
+                icon = Icons.Default.People,
+                modifier = Modifier.weight(1f)
+            )
+            DashboardMetricCard(
+                label = "Database",
+                value = when (syncStatus) {
+                    SyncStatus.SYNCING -> "Syncing"
+                    SyncStatus.HEALTHY -> "Synced"
+                    SyncStatus.ERROR -> "Offline"
+                },
+                icon = if (syncStatus == SyncStatus.HEALTHY) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                modifier = Modifier.weight(1f)
+            )
         }
 
-        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-            Spacer(modifier = Modifier.height(60.dp))
-            
-            // Database Management - RESTORED FOR ALL ROLES
-            Text("SYSTEM CONNECTION", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black, color = Color.Gray, letterSpacing = 1.sp)
-            Spacer(Modifier.height(16.dp))
-            OutlinedCard(
-                onClick = onManualSync,
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(color = primaryColor.copy(alpha = 0.1f), shape = CircleShape, modifier = Modifier.size(44.dp)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Refresh, null, tint = primaryColor) }
+        ProfessionalSectionCard(
+            title = "System connection",
+            subtitle = databaseDetail,
+            icon = Icons.Default.Cloud
+        ) {
+            ProfessionalActionRow(
+                icon = Icons.Default.Refresh,
+                title = databaseTitle,
+                body = "Tap to manually sync with the shared Google Drive database.",
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (syncStatus == SyncStatus.SYNCING) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            ProfessionalStatusChip(
+                                text = when (syncStatus) {
+                                    SyncStatus.SYNCING -> "SYNCING"
+                                    SyncStatus.HEALTHY -> "HEALTHY"
+                                    SyncStatus.ERROR -> "ERROR"
+                                },
+                                color = when (syncStatus) {
+                                    SyncStatus.SYNCING -> MaterialTheme.colorScheme.primary
+                                    SyncStatus.HEALTHY -> Color(0xFF039855)
+                                    SyncStatus.ERROR -> MaterialTheme.colorScheme.error
+                                }
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(databaseTitle, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Text(databaseDetail, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    }
-                    if (syncStatus == SyncStatus.SYNCING) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.LightGray)
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(32.dp))
+                },
+                onClick = onManualSync
+            )
+        }
 
-            // Recent Activity Section
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("LIVE ACTIVITY", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black, color = Color.Gray, letterSpacing = 1.sp)
-                Spacer(Modifier.weight(1f))
-                Box(modifier = Modifier.size(8.dp).background(Color(0xFF4CAF50), CircleShape))
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-
+        ProfessionalSectionCard(
+            title = "Live activity",
+            subtitle = "Latest scanner results on this device.",
+            icon = Icons.Default.Timeline
+        ) {
             if (recentScans.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                    Text("No scans recorded yet.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                Box(modifier = Modifier.fillMaxWidth().height(96.dp), contentAlignment = Alignment.Center) {
+                    Text("No scans recorded yet.", color = Color(0xFF98A2B3), style = MaterialTheme.typography.bodySmall)
                 }
             } else {
                 recentScans.take(3).forEach { scan ->
                     ActivityItem(scan)
-                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
-            
-            Spacer(modifier = Modifier.height(100.dp))
+        }
+
+        Spacer(modifier = Modifier.height(84.dp))
+    }
+}
+
+@Composable
+private fun DashboardMetricCard(label: String, value: String, icon: ImageVector, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = Color.White,
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD0D5DD)),
+        shadowElevation = 0.dp
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFF111827))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFF667085))
         }
     }
 }
@@ -210,10 +194,10 @@ fun ActivityItem(scan: com.example.access.data.RecentScan) {
     Surface(
         color = Color.White,
         shape = RoundedCornerShape(16.dp),
-        shadowElevation = 1.dp
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE4E7EC))
     ) {
         Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(

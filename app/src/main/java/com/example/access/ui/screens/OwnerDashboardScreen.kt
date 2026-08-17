@@ -41,6 +41,11 @@ import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
 import com.example.access.data.Config
 import com.example.access.data.FieldConfig
+import com.example.access.ui.components.ProfessionalActionRow
+import com.example.access.ui.components.ProfessionalPageHeader
+import com.example.access.ui.components.ProfessionalScreen
+import com.example.access.ui.components.ProfessionalSectionCard
+import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -118,42 +123,59 @@ fun OwnerDashboardScreen(
         })
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp).verticalScroll(scrollState), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = if (config.isPro) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    ProfessionalScreen(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp)) {
+        ProfessionalPageHeader(
+            title = "Owner Control Center",
+            subtitle = "Manage plan, branding, access keys, and organization storage."
+        )
+
+        ProfessionalSectionCard(
+            title = "Plan status",
+            subtitle = if (config.isPro) "Organization-wide Pro access is active." else "Free plan is active for this organization.",
+            icon = Icons.Default.WorkspacePremium
         ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column {
-                    Text(
-                        if (config.isPro) "Pro Tier" else "Free Tier",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        if (config.isPro) "Organization-wide Pro access is active" else "Upgrade once for this organization",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Current plan", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    ProfessionalStatusChip(
+                        text = if (config.isPro) "PRO ACTIVE" else "FREE PLAN",
+                        color = if (config.isPro) MaterialTheme.colorScheme.primary else Color(0xFF667085)
                     )
                 }
+                Text(
+                    if (config.isPro) {
+                        "All connected devices use Pro features."
+                    } else {
+                        "Upgrade once for this organization when you need unlimited members, branding, member field controls, and storage relocation."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 if (!config.isPro) {
                     Button(
                         onClick = { showUpgradeDialog = true },
-                        shape = RoundedCornerShape(12.dp)
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text("Upgrade")
+                        Icon(Icons.Default.WorkspacePremium, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Upgrade to Pro", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Admin Operations", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-        OperationCard("Brand Identity") {
+        OperationCard(
+            title = "Brand and appearance",
+            subtitle = "These controls change how this organization appears on connected devices.",
+            icon = Icons.Default.Palette
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Surface(modifier = Modifier.size(100.dp), shape = CircleShape, border = BorderStroke(1.dp, Color(0xFFEEEEEE)), shadowElevation = 2.dp) {
@@ -163,40 +185,71 @@ fun OwnerDashboardScreen(
                     }
                 }
                 Button(
-                    onClick = { logoLauncher.launch("image/*") },
+                    onClick = {
+                        if (config.isPro) logoLauncher.launch("image/*") else showUpgradeDialog = true
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = config.isPro
-                ) { Text(if (config.isPro) "Update Logo" else "Update Logo (Pro only)") }
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(if (config.isPro) Icons.Default.Upload else Icons.Default.WorkspacePremium, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (config.isPro) "Update logo" else "Upgrade to update logo")
+                }
                 Text(
                     "Branding changes are written to the shared Google Drive database so connected devices stay consistent.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
-                OutlinedTextField(value = orgName, onValueChange = { orgName = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(value = orgName, onValueChange = { orgName = it }, label = { Text("Organization name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     palettes.forEach { palette ->
-                        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (selectedColor == palette.primary) MaterialTheme.colorScheme.primaryContainer else Color(0xFFF9FAFB)).clickable { selectedColor = palette.primary }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.size(24.dp).background(Color(android.graphics.Color.parseColor(palette.primary)), CircleShape))
-                            Spacer(Modifier.width(12.dp))
-                            Text(palette.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            if (selectedColor == palette.primary) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                        Surface(
+                            onClick = { selectedColor = palette.primary },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.White,
+                            border = BorderStroke(
+                                if (selectedColor == palette.primary) 1.5.dp else 1.dp,
+                                if (selectedColor == palette.primary) MaterialTheme.colorScheme.primary else Color(0xFFD0D5DD)
+                            )
+                        ) {
+                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = selectedColor == palette.primary,
+                                    onClick = { selectedColor = palette.primary }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(modifier = Modifier.size(24.dp).background(Color(android.graphics.Color.parseColor(palette.primary)), CircleShape))
+                                Spacer(Modifier.width(12.dp))
+                                Text(palette.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }
                 Button(
                     onClick = {
+                        if (!config.isPro) {
+                            showUpgradeDialog = true
+                            return@Button
+                        }
                         isBusy = true
                         val updated = config.copy(branding = config.branding.copy(organizationName = orgName, primaryColor = selectedColor))
                         updateConfigOnDrive(context, updated) { onConfigUpdated(it); isBusy = false }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = config.isPro
-                ) { Text(if (config.isPro) "Save Brand Profile" else "Save Brand Profile (Pro only)") }
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(if (config.isPro) Icons.Default.Save else Icons.Default.WorkspacePremium, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (config.isPro) "Save brand profile" else "Upgrade to save brand profile")
+                }
             }
         }
-        OperationCard("Data Requirements") {
+        OperationCard(
+            title = "Member data fields",
+            subtitle = "Choose which optional fields appear when admins manage member records.",
+            icon = Icons.Default.ViewList
+        ) {
             Column {
                 FieldToggleRow("Phone Access", showPhone) { showPhone = it }
                 FieldToggleRow("Email Contact", showEmail) { showEmail = it }
@@ -205,17 +258,28 @@ fun OwnerDashboardScreen(
                 Spacer(Modifier.height(16.dp))
                 Button(
                     onClick = {
+                        if (!config.isPro) {
+                            showUpgradeDialog = true
+                            return@Button
+                        }
                         isBusy = true
                         val updated = config.copy(branding = config.branding.copy(fieldConfig = FieldConfig(showPhone, showEmail, showAddress, showNotes)))
                         updateConfigOnDrive(context, updated) { onConfigUpdated(it); isBusy = false }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = config.isPro
-                ) { Text(if (config.isPro) "Update Member Fields" else "Update Member Fields (Pro only)") }
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(if (config.isPro) Icons.Default.Save else Icons.Default.WorkspacePremium, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (config.isPro) "Update member fields" else "Upgrade to update member fields")
+                }
             }
         }
-        OperationCard("Security Credentials") {
+        OperationCard(
+            title = "Security credentials",
+            subtitle = "Set separate access keys so Admin and Owner roles stay distinct.",
+            icon = Icons.Default.Security
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedTextField(value = adminPass, onValueChange = { adminPass = it }, label = { Text("New Admin Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 OutlinedTextField(value = ownerPass, onValueChange = { ownerPass = it }, label = { Text("New Owner Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
@@ -242,14 +306,27 @@ fun OwnerDashboardScreen(
                     if (adminPass.isNotEmpty()) newH["admin"] = SecurityUtils.hashPassword(adminPass)
                     if (ownerPass.isNotEmpty()) newH["owner"] = SecurityUtils.hashPassword(ownerPass)
                     updateConfigOnDrive(context, config.copy(roleHashes = newH)) { onConfigUpdated(it); adminPass = ""; ownerPass = ""; isBusy = false }
-                }, modifier = Modifier.fillMaxWidth(), enabled = adminPass.isNotEmpty() || ownerPass.isNotEmpty(), shape = RoundedCornerShape(12.dp)) { Text("Update Access Keys") }
+                }, modifier = Modifier.fillMaxWidth(), enabled = adminPass.isNotEmpty() || ownerPass.isNotEmpty(), shape = RoundedCornerShape(16.dp)) {
+                    Icon(Icons.Default.Save, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Update access keys")
+                }
             }
         }
-        OperationCard("Data Infrastructure") {
+        OperationCard(
+            title = "Database storage",
+            subtitle = "See where the shared organization database is stored in Google Drive.",
+            icon = Icons.Default.Storage
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Storage, null, tint = Color.Gray); Spacer(Modifier.width(12.dp)); Text(activeFolderName, fontWeight = FontWeight.Bold)
-                }
+                ProfessionalActionRow(
+                    icon = Icons.Default.Folder,
+                    title = activeFolderName,
+                    body = "Current shared database folder in Google Drive.",
+                    trailing = {
+                        ProfessionalStatusChip("CURRENT", Color(0xFF667085))
+                    }
+                )
                 Text(
                     "This folder holds the EasyPass organization database. Owner changes need Google Drive access so the database can be updated safely.",
                     style = MaterialTheme.typography.bodySmall,
@@ -258,6 +335,10 @@ fun OwnerDashboardScreen(
                 OutlinedTextField(value = folderLink, onValueChange = { folderLink = it }, label = { Text("Migrate Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Button(
                     onClick = {
+                        if (!config.isPro) {
+                            showUpgradeDialog = true
+                            return@Button
+                        }
                         val ext = extractFolderIdFromLink(folderLink)
                         if (ext != null) {
                             isBusy = true
@@ -265,12 +346,16 @@ fun OwnerDashboardScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = config.isPro && folderLink.contains("folders/"),
-                    shape = RoundedCornerShape(12.dp)
-                ) { Text(if (config.isPro) "Relocate Hub" else "Relocate Hub (Pro only)") }
+                    enabled = config.isPro.not() || folderLink.contains("folders/"),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(if (config.isPro) Icons.Default.Folder else Icons.Default.WorkspacePremium, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (config.isPro) "Relocate database folder" else "Upgrade to relocate database folder")
+                }
             }
         }
-        Spacer(modifier = Modifier.height(100.dp))
+        Spacer(modifier = Modifier.height(84.dp))
     }
     if (showUpgradeDialog) {
         PaywallDialog(
@@ -296,12 +381,14 @@ fun OwnerDashboardScreen(
 }
 
 @Composable
-fun OperationCard(title: String, content: @Composable () -> Unit) {
-    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(title.uppercase(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black, color = Color.Gray, letterSpacing = 1.sp)
-            Spacer(Modifier.height(20.dp)); content()
-        }
+fun OperationCard(
+    title: String,
+    subtitle: String? = null,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    content: @Composable () -> Unit
+) {
+    ProfessionalSectionCard(title = title, subtitle = subtitle, icon = icon) {
+        content()
     }
 }
 

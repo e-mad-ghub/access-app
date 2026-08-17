@@ -34,6 +34,7 @@ import androidx.lifecycle.lifecycleScope
 import com.easyapps.easypass.R
 import com.example.access.ui.components.LoadingOverlay
 import com.example.access.ui.components.secretElevation
+import com.example.access.ui.theme.AccessTheme
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -95,9 +96,11 @@ class SetupWizardActivity : ComponentActivity() {
         }
 
         setContent {
-            Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F9FB))) {
-                SetupWizardScreen()
-                LoadingOverlay(isVisible = isBusy, message = "Securing Connection...")
+            AccessTheme {
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFAFBFC))) {
+                    SetupWizardScreen()
+                    LoadingOverlay(isVisible = isBusy, message = "Securing Connection...")
+                }
             }
         }
     }
@@ -108,18 +111,17 @@ class SetupWizardActivity : ComponentActivity() {
             modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Logo - Matches Black Master Asset Exactly
             Surface(
-                modifier = Modifier.size(90.dp),
-                shape = CircleShape,
-                color = Color.Black,
-                shadowElevation = 4.dp
+                modifier = Modifier.size(96.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = Color.White,
+                shadowElevation = 1.dp
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Image(
-                        painter = painterResource(id = R.drawable.ic_pass_logo),
+                        painter = painterResource(id = R.drawable.easypass_logo),
                         contentDescription = null,
-                        modifier = Modifier.size(60.dp)
+                        modifier = Modifier.size(72.dp)
                     )
                 }
             }

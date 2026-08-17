@@ -36,6 +36,7 @@ fun MainAppNavigation(
     onManualSync: () -> Unit,
     onRepairCloud: () -> Unit,
     onConfigUpdated: (Config) -> Unit,
+    onLeaveOrganization: (Boolean) -> Unit,
     scannerViewModel: MainScannerViewModel,
     billingViewModel: BillingViewModel,
     configFileId: String
@@ -139,7 +140,11 @@ fun MainAppNavigation(
                         )
                     }
                     "Settings" -> {
-                        AdminSettingsScreen(config = currentConfig, activeRole = activeRole)
+                        AdminSettingsScreen(
+                            config = currentConfig,
+                            activeRole = activeRole,
+                            onLeaveOrganization = onLeaveOrganization
+                        )
                     }
                     "Owner" -> {
                         OwnerDashboardScreen(config = currentConfig, billingViewModel = billingViewModel, configFileId = configFileId, onConfigUpdated = onConfigUpdated)

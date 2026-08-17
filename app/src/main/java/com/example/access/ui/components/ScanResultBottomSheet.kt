@@ -60,10 +60,11 @@ fun ScanResultBottomSheet(
                     memberIdLabel = "Digital Pass: Valid"
                 }
                 is ScanResult.Denied -> {
-                    memberName = if (result.reason == "Paused") "Access Denied" else "Unknown"
-                    memberIdLabel = if (result.reason == "Paused") "Member Directory: Paused" else "Invalid Pass"
-                    statusText = if (result.reason == "Paused") "PAUSED" else "ACCESS DENIED"
-                    statusColor = if (result.reason == "Paused") Color(0xFFFBC02D) else Color.Red
+                    val isSuspended = result.reason == "Paused" || result.reason == "Suspended"
+                    memberName = if (isSuspended) "Access Denied" else "Unknown"
+                    memberIdLabel = if (isSuspended) "Member Directory: Suspended" else "Invalid Pass"
+                    statusText = if (isSuspended) "SUSPENDED" else "ACCESS DENIED"
+                    statusColor = if (isSuspended) Color(0xFFFBC02D) else Color.Red
                 }
             }
 

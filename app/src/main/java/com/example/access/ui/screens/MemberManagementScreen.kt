@@ -32,6 +32,8 @@ import com.example.access.data.AppDatabase
 import com.example.access.data.Config
 import com.example.access.data.Member
 import com.example.access.data.MemberDao
+import com.example.access.ui.components.ProfessionalPageHeader
+import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.FREE_TIER_MEMBER_LIMIT
 import com.example.access.util.QrBadgeExporter
@@ -48,7 +50,7 @@ import java.util.UUID
 private enum class MemberFilter(val label: String) {
     ALL("All"),
     ACTIVE("Active"),
-    PAUSED("Paused"),
+    SUSPENDED("Suspended"),
     MISSING_PHONE("Missing phone"),
     MISSING_EMAIL("Missing email")
 }
@@ -71,9 +73,9 @@ fun MemberManagementScreen(
     var selectedFilter by remember { mutableStateOf<MemberFilter?>(null) }
     
     var isBusy by remember { mutableStateOf(false) }
-var showPaywall by remember { mutableStateOf(false) }
-val productDetails by billingViewModel.productDetails.collectAsState()
-val billingState by billingViewModel.billingState.collectAsState()
+    var showPaywall by remember { mutableStateOf(false) }
+    val productDetails by billingViewModel.productDetails.collectAsState()
+    val billingState by billingViewModel.billingState.collectAsState()
 
     val members by db.memberDao().getAllMembers().observeAsState(emptyList())
     val usableMembers = remember(members, config.isPro) {
@@ -93,7 +95,7 @@ val billingState by billingViewModel.billingState.collectAsState()
             when (selectedFilter) {
                 null, MemberFilter.ALL -> true
                 MemberFilter.ACTIVE -> member.status.equals("Active", ignoreCase = true)
-                MemberFilter.PAUSED -> !member.status.equals("Active", ignoreCase = true)
+                MemberFilter.SUSPENDED -> !member.status.equals("Active", ignoreCase = true)
                 MemberFilter.MISSING_PHONE -> member.phone.isNullOrBlank()
                 MemberFilter.MISSING_EMAIL -> member.email.isNullOrBlank()
             }
@@ -101,17 +103,23 @@ val billingState by billingViewModel.billingState.collectAsState()
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column {
-                Text("Members", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
-                Text("Directory & Pass Management", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        ProfessionalPageHeader(
+            title = "Members",
+            subtitle = "Directory and pass management for this organization.",
+            action = {
+                FloatingActionButton(
+                    onClick = { if (!config.isPro && members.size >= FREE_TIER_MEMBER_LIMIT) showPaywall = true else showAddDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add member")
+                }
             }
-            FloatingActionButton(onClick = { if (!config.isPro && members.size >= FREE_TIER_MEMBER_LIMIT) showPaywall = true else showAddDialog = true }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = CircleShape, modifier = Modifier.size(56.dp)) {
-                Icon(Icons.Default.Add, contentDescription = null)
-            }
-        }
+        )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         OutlinedTextField(
             value = searchQuery,
@@ -120,7 +128,7 @@ val billingState by billingViewModel.billingState.collectAsState()
             placeholder = { Text("Search by name, ID or type '@all'...") },
             leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary) },
             trailingIcon = { if (searchQuery.isNotEmpty()) IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Clear, null) } },
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             singleLine = true
         )
 
@@ -142,9 +150,9 @@ val billingState by billingViewModel.billingState.collectAsState()
         Spacer(modifier = Modifier.height(24.dp))
 
         if (!config.isPro && members.size > usableMembers.size) {
-            Card(
+            Surface(
                 shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.65f))
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.65f)
             ) {
                 Text(
                     "Free plan limit reached. Only the first $FREE_TIER_MEMBER_LIMIT members are active on this device. Upgrade to Pro to unlock the full database.",
@@ -160,7 +168,7 @@ val billingState by billingViewModel.billingState.collectAsState()
         if (searchQuery.isBlank() && selectedFilter == null) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Surface(modifier = Modifier.size(80.dp), color = Color.White, shape = CircleShape, shadowElevation = 2.dp) {
+                    Surface(modifier = Modifier.size(72.dp), color = Color.White, shape = RoundedCornerShape(18.dp), shadowElevation = 1.dp) {
                         Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Badge, null, modifier = Modifier.size(40.dp), tint = Color.LightGray) }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
@@ -247,7 +255,7 @@ val billingState by billingViewModel.billingState.collectAsState()
         }, dismissButton = { TextButton(onClick = { memberToDelete = null }) { Text("Cancel") } })
     }
 
-if (showPaywall) {
+    if (showPaywall) {
         PaywallDialog(
             onDismissRequest = { showPaywall = false },
             onPurchaseClick = {
@@ -276,16 +284,16 @@ fun MemberBadgeCard(member: Member, config: Config, onEdit: (Member) -> Unit, on
     val scope = rememberCoroutineScope()
     val db = remember { AppDatabase.getDatabase(context) }
     val primaryColor = MaterialTheme.colorScheme.primary
-    Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF3F4F6)), shadowElevation = 2.dp) {
-        Column(modifier = Modifier.padding(20.dp)) {
+    Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD0D5DD)), shadowElevation = 0.dp) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.Top) {
-                Box(modifier = Modifier.size(52.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape), contentAlignment = Alignment.Center) {
-                    Text(member.fullName.take(1).uppercase(), fontWeight = FontWeight.Black, color = primaryColor, fontSize = 20.sp)
+                Box(modifier = Modifier.size(48.dp).background(primaryColor.copy(alpha = 0.08f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                    Text(member.fullName.take(1).uppercase(), fontWeight = FontWeight.SemiBold, color = primaryColor, fontSize = 20.sp)
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(member.fullName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = Color(0xFF263238))
-                    Text("ID: ${member.memberId}", style = MaterialTheme.typography.labelSmall, color = Color.Gray, letterSpacing = 1.sp)
+                    Text(member.fullName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, color = Color(0xFF111827))
+                    Text("ID: ${member.memberId}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF667085))
                 }
                 StatusPill(member.status)
             }
@@ -297,29 +305,53 @@ fun MemberBadgeCard(member: Member, config: Config, onEdit: (Member) -> Unit, on
                 if (showEmail) DetailItem(Icons.Default.Email, member.email!!)
             }
             Spacer(modifier = Modifier.height(20.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { QrBadgeExporter.exportAndSharePass(context, member, config.branding.organizationName, null) }, modifier = Modifier.weight(1.5f).height(44.dp), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(0.dp)) {
-                    Icon(Icons.Default.QrCode, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)); Text("Share Pass", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { QrBadgeExporter.exportAndSharePass(context, member, config.branding.organizationName, null) },
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Default.QrCode, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Share QR pass", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
-                OutlinedButton(onClick = {
-                    onStatusChange(true)
-                    scope.launch {
-                        val nextS = if (member.status == "Active") "Paused" else "Active"
-                        withContext(Dispatchers.IO) { 
-                            db.memberDao().updateStatus(member.memberId, nextS)
-                            val acc = GoogleSignIn.getLastSignedInAccount(context)
-                            if (acc != null) {
-                                val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
-                                DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        onStatusChange(true)
+                        scope.launch {
+                            val nextS = if (member.status == "Active") "Suspended" else "Active"
+                            withContext(Dispatchers.IO) {
+                                db.memberDao().updateStatus(member.memberId, nextS)
+                                val acc = GoogleSignIn.getLastSignedInAccount(context)
+                                if (acc != null) {
+                                    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
+                                    DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
+                                }
                             }
+                            onStatusChange(false)
                         }
-                        onStatusChange(false)
+                    }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(16.dp)) {
+                        Icon(if (member.status == "Active") Icons.Default.Block else Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (member.status == "Active") "Suspend" else "Reactivate", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
-                }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(12.dp)) {
-                    Text(if (member.status == "Active") "Pause" else "Resume", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    OutlinedButton(onClick = { onEdit(member) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Edit", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    OutlinedButton(
+                        onClick = { onDelete(member) },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Delete", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
-                IconButton(onClick = { onEdit(member) }, modifier = Modifier.size(44.dp).background(Color(0xFFF5F5F5), CircleShape)) { Icon(Icons.Default.Edit, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) }
-                IconButton(onClick = { onDelete(member) }, modifier = Modifier.size(44.dp).background(Color(0xFFFFEBEE), CircleShape)) { Icon(Icons.Default.Delete, null, tint = Color(0xFFD32F2F), modifier = Modifier.size(20.dp)) }
             }
         }
     }
@@ -350,13 +382,7 @@ fun MemberEditDialog(member: Member? = null, existingMembers: List<Member>, conf
 @Composable
 fun StatusPill(status: String) {
     val active = status == "Active"
-    Surface(color = if (active) Color(0xFFECFDF5) else Color(0xFFF3F4F6), shape = CircleShape) {
-        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(6.dp).background(if (active) Color(0xFF10B981) else Color.Gray, CircleShape))
-            Spacer(Modifier.width(6.dp))
-            Text(status.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Black, color = if (active) Color(0xFF065F46) else Color.Gray)
-        }
-    }
+    ProfessionalStatusChip(if (active) "ACTIVE" else "SUSPENDED", if (active) Color(0xFF039855) else Color(0xFF667085))
 }
 
 private suspend fun generateUniqueMemberId(dao: MemberDao): String {

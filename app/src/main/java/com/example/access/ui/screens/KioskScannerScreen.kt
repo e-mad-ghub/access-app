@@ -104,7 +104,7 @@ fun KioskScannerScreen(viewModel: MainScannerViewModel) {
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 28.dp),
                 color = Color.White,
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(24.dp),
                 shadowElevation = 12.dp
             ) {
                 Column(
@@ -129,9 +129,9 @@ fun KioskScannerScreen(viewModel: MainScannerViewModel) {
                     Text(
                         scan.name,
                         color = Color(0xFF102A2D),
-                        fontWeight = FontWeight.Black,
-                        fontSize = 30.sp,
-                        lineHeight = 34.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 28.sp,
+                        lineHeight = 32.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                     Text(
@@ -149,7 +149,7 @@ fun KioskScannerScreen(viewModel: MainScannerViewModel) {
                     Button(
                         onClick = { viewModel.dismissActiveScanResult() },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(18.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = statusColor)
                     ) {
                         Text(
@@ -159,7 +159,7 @@ fun KioskScannerScreen(viewModel: MainScannerViewModel) {
                         )
                     }
                     Text(
-                        "Scanning is paused until this result is closed.",
+                        "Scanning will continue after this result is closed.",
                         color = Color.Gray,
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -279,7 +279,7 @@ fun ViewfinderOverlay() {
         Box(
             modifier = Modifier
                 .size(250.dp)
-                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
+                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
                 .padding(2.dp)
         )
         Icon(

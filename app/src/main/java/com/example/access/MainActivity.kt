@@ -27,10 +27,13 @@ import com.example.access.util.DriveSyncManager
 import com.example.access.util.FeedbackManager
 import com.example.access.util.SessionManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.services.drive.DriveScopes
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.access.BillingViewModel
 
 enum class SyncStatus { SYNCING, HEALTHY, ERROR }
@@ -124,6 +127,9 @@ class MainActivity : ComponentActivity() {
                             scannerViewModel.updateConfig(it)
                             sessionManager.updateConfig(it)
                         },
+                        onLeaveOrganization = { signOutGoogle ->
+                            leaveOrganization(signOutGoogle)
+                        },
                         scannerViewModel = scannerViewModel,
                         billingViewModel = billingViewModel,
                         configFileId = configFileId ?: "",
@@ -194,6 +200,35 @@ class MainActivity : ComponentActivity() {
                 Log.e("MainActivity", "Failed to load config", e)
                 syncMessage = "Using last synced database. Changes may not upload until connection is restored."
                 syncStatus = SyncStatus.ERROR
+            }
+        }
+    }
+
+    private fun leaveOrganization(signOutGoogle: Boolean) {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                AppDatabase.getDatabase(this@MainActivity).memberDao().deleteAllMembers()
+                getSharedPreferences("easypass_prefs", MODE_PRIVATE)
+                    .edit()
+                    .remove("config_file_id")
+                    .apply()
+            }
+
+            configFileId = null
+            sessionManager.resetSession()
+
+            fun openSetup() {
+                startActivity(Intent(this@MainActivity, SetupWizardActivity::class.java))
+                finish()
+            }
+
+            if (signOutGoogle) {
+                val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
+                GoogleSignIn.getClient(this@MainActivity, gso).signOut().addOnCompleteListener {
+                    openSetup()
+                }
+            } else {
+                openSetup()
             }
         }
     }
