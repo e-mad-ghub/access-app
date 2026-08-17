@@ -7,9 +7,11 @@ import com.android.billingclient.api.ProductDetails
 import android.app.Activity
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +33,7 @@ import com.example.access.data.Config
 import com.example.access.data.Member
 import com.example.access.data.MemberDao
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.FREE_TIER_MEMBER_LIMIT
 import com.example.access.util.QrBadgeExporter
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -41,7 +44,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.UUID
-private const val FREE_TIER_MEMBER_LIMIT = 15
+
+private enum class MemberFilter(val label: String) {
+    ALL("All"),
+    ACTIVE("Active"),
+    PAUSED("Paused"),
+    MISSING_PHONE("Missing phone"),
+    MISSING_EMAIL("Missing email")
+}
 
 @Composable
 fun MemberManagementScreen(
@@ -58,6 +68,7 @@ fun MemberManagementScreen(
     var memberToEdit by remember { mutableStateOf<Member?>(null) }
     var memberToDelete by remember { mutableStateOf<Member?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf<MemberFilter?>(null) }
     
     var isBusy by remember { mutableStateOf(false) }
 var showPaywall by remember { mutableStateOf(false) }
@@ -65,12 +76,28 @@ val productDetails by billingViewModel.productDetails.collectAsState()
 val billingState by billingViewModel.billingState.collectAsState()
 
     val members by db.memberDao().getAllMembers().observeAsState(emptyList())
+    val usableMembers = remember(members, config.isPro) {
+        if (config.isPro) members else members.take(FREE_TIER_MEMBER_LIMIT)
+    }
 
-    val filteredMembers = remember(searchQuery, members) {
+    val filteredMembers = remember(searchQuery, selectedFilter, usableMembers) {
         val query = searchQuery.trim().lowercase()
-        if (query.isBlank()) emptyList()
-        else if (query == "@all") members.sortedBy { it.fullName.lowercase() }
-        else members.filter { m -> m.fullName.lowercase().contains(query) || m.memberId.lowercase().contains(query) }.sortedBy { it.fullName.lowercase() }
+        val baseMembers = when {
+            query == "@all" || selectedFilter != null -> usableMembers
+            query.isBlank() -> emptyList()
+            else -> usableMembers.filter { m ->
+                m.fullName.lowercase().contains(query) || m.memberId.lowercase().contains(query)
+            }
+        }
+        baseMembers.filter { member ->
+            when (selectedFilter) {
+                null, MemberFilter.ALL -> true
+                MemberFilter.ACTIVE -> member.status.equals("Active", ignoreCase = true)
+                MemberFilter.PAUSED -> !member.status.equals("Active", ignoreCase = true)
+                MemberFilter.MISSING_PHONE -> member.phone.isNullOrBlank()
+                MemberFilter.MISSING_EMAIL -> member.email.isNullOrBlank()
+            }
+        }.sortedBy { it.fullName.lowercase() }
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
@@ -97,9 +124,40 @@ val billingState by billingViewModel.billingState.collectAsState()
             singleLine = true
         )
 
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MemberFilter.values().forEach { filter ->
+                FilterChip(
+                    selected = selectedFilter == filter,
+                    onClick = { selectedFilter = if (selectedFilter == filter) null else filter },
+                    label = { Text(filter.label) }
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
-        if (searchQuery.isBlank()) {
+        if (!config.isPro && members.size > usableMembers.size) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.65f))
+            ) {
+                Text(
+                    "Free plan limit reached. Only the first $FREE_TIER_MEMBER_LIMIT members are active on this device. Upgrade to Pro to unlock the full database.",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        if (searchQuery.isBlank() && selectedFilter == null) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Surface(modifier = Modifier.size(80.dp), color = Color.White, shape = CircleShape, shadowElevation = 2.dp) {
@@ -140,7 +198,7 @@ val billingState by billingViewModel.billingState.collectAsState()
                     val acc = GoogleSignIn.getLastSignedInAccount(context)
                     if (acc != null) {
                         val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
-                        DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId)
+                        DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
                     }
                 }
                 isBusy = false
@@ -159,7 +217,7 @@ val billingState by billingViewModel.billingState.collectAsState()
                     val acc = GoogleSignIn.getLastSignedInAccount(context)
                     if (acc != null) {
                         val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
-                        DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId)
+                        DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
                     }
                 }
                 isBusy = false
@@ -180,7 +238,7 @@ val billingState by billingViewModel.billingState.collectAsState()
                         val acc = GoogleSignIn.getLastSignedInAccount(context)
                         if (acc != null) {
                             val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
-                            DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId)
+                            DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
                         }
                     }
                     isBusy = false
@@ -252,7 +310,7 @@ fun MemberBadgeCard(member: Member, config: Config, onEdit: (Member) -> Unit, on
                             val acc = GoogleSignIn.getLastSignedInAccount(context)
                             if (acc != null) {
                                 val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
-                                DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId)
+                                DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
                             }
                         }
                         onStatusChange(false)

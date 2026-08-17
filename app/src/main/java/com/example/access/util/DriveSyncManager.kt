@@ -25,7 +25,23 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.*
-data class ImportResult(val members: List<Member>, val skippedRows: List<Int>)
+
+const val FREE_TIER_MEMBER_LIMIT = 15
+private const val PREFS_NAME = "easypass_prefs"
+private const val FREE_LIMIT_TRIMMED_KEY = "free_limit_trimmed_database"
+
+enum class ImportMode { ADD, OVERWRITE }
+
+data class ImportResult(
+    val members: List<Member>,
+    val skippedRows: List<Int>,
+    val duplicateRows: List<Int> = emptyList(),
+    val originalValidMemberCount: Int = members.size,
+    val limitExceededCount: Int = 0
+) {
+    val hasFreeLimitWarning: Boolean
+        get() = limitExceededCount > 0
+}
 
 
 
@@ -70,7 +86,43 @@ class DriveSyncManager(
     }
 
     private val EXCEL_COLUMNS = listOf("MemberID", "FullName", "Status", "QRCodeHash", "LastUpdated", "Phone", "Email", "Address", "Notes")
+    private val IMPORT_TEMPLATE_COLUMNS = listOf("Name", "Phone", "Email", "Address", "Notes")
     private val CONFIG_FOLDER_NAME = "EasyPass-configs"
+
+    private fun normalizeForDuplicate(value: String?): String =
+        value.orEmpty().trim().lowercase(Locale.US).replace(Regex("[^a-z0-9@+]"), "")
+
+    private fun duplicateKeysFor(member: Member): List<String> {
+        val keys = mutableListOf<String>()
+        val email = normalizeForDuplicate(member.email)
+        if (email.isNotBlank()) keys += "email:$email"
+        val phone = normalizeForDuplicate(member.phone)
+        if (phone.isNotBlank()) keys += "phone:$phone"
+        return keys
+    }
+
+    private fun applyFreeLimit(result: ImportResult, isPro: Boolean): ImportResult {
+        if (isPro || result.members.size <= FREE_TIER_MEMBER_LIMIT) return result
+        return result.copy(
+            members = result.members.take(FREE_TIER_MEMBER_LIMIT),
+            originalValidMemberCount = result.members.size,
+            limitExceededCount = result.members.size - FREE_TIER_MEMBER_LIMIT
+        )
+    }
+
+    private fun usableMembersForPlan(members: List<Member>, isPro: Boolean): List<Member> =
+        if (isPro) members else members.sortedBy { it.fullName.lowercase(Locale.US) }.take(FREE_TIER_MEMBER_LIMIT)
+
+    private fun setFreeLimitTrimmed(trimmed: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(FREE_LIMIT_TRIMMED_KEY, trimmed)
+            .apply()
+    }
+
+    private fun hasFreeLimitTrimmedDatabase(): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(FREE_LIMIT_TRIMMED_KEY, false)
     
     /**
      * Parses an Excel date string and converts it to ISO-8601 format.
@@ -330,60 +382,101 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun downloadAndParseExcel(fileId: String): ImportResult? = withContext(Dispatchers.IO) {
+    private fun parseMembersWorkbook(inputStream: java.io.InputStream): ImportResult {
+        return WorkbookFactory.create(inputStream).use { workbook ->
+            val sheet = workbook.getSheetAt(0)
+            val formatter = DataFormatter(Locale.US)
+            val parsed = mutableListOf<Member>()
+            val seenKeys = mutableSetOf<String>()
+            val seenGeneratedIds = mutableSetOf<String>()
+            val skippedRows = mutableListOf<Int>()
+            val duplicateRows = mutableListOf<Int>()
+            val headerRow = sheet.getRow(0)
+
+            fun normalizedHeader(value: String): String =
+                value.lowercase(Locale.US).replace(Regex("[^a-z0-9]"), "")
+
+            fun headerIndex(vararg names: String): Int? {
+                if (headerRow == null) return null
+                val wanted = names.map(::normalizedHeader).toSet()
+                for (cellIndex in 0 until headerRow.lastCellNum.coerceAtLeast(0)) {
+                    val header = normalizedHeader(formatter.formatCellValue(headerRow.getCell(cellIndex)))
+                    if (header in wanted) return cellIndex
+                }
+                return null
+            }
+
+            val nameIndex = headerIndex("Name", "FullName", "Full Name", "Member Name")
+            val phoneIndex = headerIndex("Phone", "Phone Number", "Mobile", "Mobile Number")
+            val emailIndex = headerIndex("Email", "Email Address")
+            val addressIndex = headerIndex("Address")
+            val notesIndex = headerIndex("Notes", "Note", "Comments")
+            val statusIndex = headerIndex("Status")
+            val memberIdIndex = headerIndex("MemberID", "Member ID")
+            val qrTokenIndex = headerIndex("QRCodeHash", "QR Code Hash", "QR Token")
+            val lastUpdatedIndex = headerIndex("LastUpdated", "Last Updated")
+
+            fun uniqueMemberId(): String {
+                while (true) {
+                    val candidate = "M-${UUID.randomUUID().toString().replace("-", "").take(24).uppercase(Locale.US)}"
+                    if (seenGeneratedIds.add(candidate)) return candidate
+                }
+            }
+
+            for (i in 1..sheet.lastRowNum) {
+                val row = sheet.getRow(i) ?: continue
+                fun cell(index: Int?): String =
+                    index?.let { formatter.formatCellValue(row.getCell(it)).trim() }.orEmpty()
+
+                val fullName = if (nameIndex != null) cell(nameIndex) else cell(1)
+                val phone = if (nameIndex != null) cell(phoneIndex) else cell(5)
+                val email = if (nameIndex != null) cell(emailIndex) else cell(6)
+                val address = if (nameIndex != null) cell(addressIndex) else cell(7)
+                val notes = if (nameIndex != null) cell(notesIndex) else cell(8)
+                val rowNumber = i + 1
+
+                if (fullName.isBlank() && phone.isBlank() && email.isBlank() && address.isBlank() && notes.isBlank()) continue
+                if (fullName.isBlank()) {
+                    skippedRows.add(rowNumber)
+                    continue
+                }
+
+                val member = Member(
+                    memberId = cell(memberIdIndex).ifBlank { uniqueMemberId() },
+                    fullName = fullName,
+                    status = cell(statusIndex).ifBlank { "Active" },
+                    qrCodeHash = cell(qrTokenIndex).ifBlank { SecurityUtils.generateSecureQrToken() },
+                    lastUpdated = cell(lastUpdatedIndex).takeIf(String::isNotBlank)?.let(::parseExcelDate) ?: Instant.now().toString(),
+                    phone = phone.takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
+                    email = email.takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
+                    address = address.takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
+                    notes = notes.takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
+                )
+
+                val duplicateKeys = duplicateKeysFor(member)
+                if (duplicateKeys.any { it in seenKeys }) {
+                    duplicateRows.add(rowNumber)
+                    continue
+                }
+                seenKeys.addAll(duplicateKeys)
+
+                parsed += member
+            }
+
+            ImportResult(
+                members = parsed,
+                skippedRows = skippedRows,
+                duplicateRows = duplicateRows,
+                originalValidMemberCount = parsed.size
+            )
+        }
+    }
+
+    suspend fun downloadAndParseExcel(fileId: String, isPro: Boolean = true): ImportResult? = withContext(Dispatchers.IO) {
         try {
             val bytes = downloadFileBytes(fileId) ?: return@withContext null
-            val result = WorkbookFactory.create(ByteArrayInputStream(bytes)).use { workbook ->
-                val sheet = workbook.getSheetAt(0)
-                val formatter = DataFormatter(Locale.US)
-                val parsed = mutableListOf<Member>()
-                val seenIds = mutableSetOf<String>()
-                val skippedRows = mutableListOf<Int>()
-
-                for (i in 1..sheet.lastRowNum) {
-                    val row = sheet.getRow(i) ?: continue
-                    fun cell(index: Int): String =
-                        formatter.formatCellValue(row.getCell(index)).trim()
-
-                    val memberId = cell(0)
-                    val fullName = cell(1)
-                    val qrToken = cell(3)
-
-                    // Ignore truly empty spreadsheet rows, but reject malformed
-                    // member rows so a bad cloud file cannot wipe/poison the cache.
-                    if (memberId.isBlank() && fullName.isBlank() && qrToken.isBlank()) continue
-                    val rowNumber = i + 1
-                    if (memberId.isBlank()) {
-                        skippedRows.add(rowNumber)
-                        continue
-                    }
-                    if (fullName.isBlank()) {
-                        skippedRows.add(rowNumber)
-                        continue
-                    }
-                    if (qrToken.isBlank()) {
-                        skippedRows.add(rowNumber)
-                        continue
-                    }
-                    if (!seenIds.add(memberId)) {
-                        skippedRows.add(rowNumber)
-                        continue
-                    }
-
-                    parsed += Member(
-                        memberId = memberId,
-                        fullName = fullName,
-                        status = cell(2).ifBlank { "Active" },
-                        qrCodeHash = qrToken,
-                        lastUpdated = parseExcelDate(cell(4)),
-                        phone = cell(5).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
-                        email = cell(6).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
-                        address = cell(7).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) },
-                        notes = cell(8).takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
-                    )
-                }
-                ImportResult(parsed, skippedRows)
-            }
+            val result = applyFreeLimit(parseMembersWorkbook(ByteArrayInputStream(bytes)), isPro)
+            setFreeLimitTrimmed(!isPro && result.hasFreeLimitWarning)
 
             // Cloud Excel is authoritative. A transaction removes members no
             // longer present, preventing revoked/deleted badges from staying valid.
@@ -395,9 +488,13 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun exportRoomToExcelAndUpload(fileId: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun exportRoomToExcelAndUpload(fileId: String, isPro: Boolean = true): Boolean = withContext(Dispatchers.IO) {
         try {
-            val members = db.memberDao().getAllMembersList()
+            if (!isPro && hasFreeLimitTrimmedDatabase()) {
+                Log.w("DriveSync", "Skipping Drive upload because free plan loaded a trimmed over-limit database.")
+                return@withContext false
+            }
+            val members = usableMembersForPlan(db.memberDao().getAllMembersList(), isPro)
             val workbook = XSSFWorkbook()
             val sheet = workbook.createSheet("Members")
             val header = sheet.createRow(0)
@@ -447,9 +544,9 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun exportLocalBackup(): File? = withContext(Dispatchers.IO) {
+    suspend fun exportLocalBackup(isPro: Boolean = true): File? = withContext(Dispatchers.IO) {
         try {
-            val members = db.memberDao().getAllMembersList()
+            val members = usableMembersForPlan(db.memberDao().getAllMembersList(), isPro)
             val workbook = XSSFWorkbook()
             val sheet = workbook.createSheet("MemberDirectory")
             val header = sheet.createRow(0)
@@ -467,94 +564,62 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun importLocalSheet(inputStream: java.io.InputStream): ImportResult? = withContext(Dispatchers.IO) {
+    suspend fun exportImportTemplate(): File? = withContext(Dispatchers.IO) {
         try {
-            val result = WorkbookFactory.create(inputStream).use { workbook ->
-                val sheet = workbook.getSheetAt(0)
-                val formatter = DataFormatter(Locale.US)
-                val parsed = mutableListOf<Member>()
-                val seenIds = mutableSetOf<String>()
-                val skippedRows = mutableListOf<Int>()
-                val headerRow = sheet.getRow(0)
-
-                fun normalizedHeader(value: String): String =
-                    value.lowercase(Locale.US).replace(Regex("[^a-z0-9]"), "")
-
-                fun headerIndex(vararg names: String): Int? {
-                    if (headerRow == null) return null
-                    val wanted = names.map(::normalizedHeader).toSet()
-                    for (cellIndex in 0 until headerRow.lastCellNum.coerceAtLeast(0)) {
-                        val header = normalizedHeader(formatter.formatCellValue(headerRow.getCell(cellIndex)))
-                        if (header in wanted) return cellIndex
-                    }
-                    return null
-                }
-
-                val nameIndex = headerIndex("Name", "FullName", "Full Name", "Member Name")
-                val phoneIndex = headerIndex("Phone", "Phone Number", "Mobile", "Mobile Number")
-                val emailIndex = headerIndex("Email", "Email Address")
-                val addressIndex = headerIndex("Address")
-                val notesIndex = headerIndex("Notes", "Note", "Comments")
-                val statusIndex = headerIndex("Status")
-                val memberIdIndex = headerIndex("MemberID", "Member ID")
-                val qrTokenIndex = headerIndex("QRCodeHash", "QR Code Hash", "QR Token")
-                val lastUpdatedIndex = headerIndex("LastUpdated", "Last Updated")
-
-                fun uniqueMemberId(): String {
-                    while (true) {
-                        val candidate = "M-${UUID.randomUUID().toString().replace("-", "").take(24).uppercase(Locale.US)}"
-                        if (seenIds.add(candidate)) return candidate
-                    }
-                }
-
-                for (i in 1..sheet.lastRowNum) {
-                    val row = sheet.getRow(i) ?: continue
-                    fun cell(index: Int?): String =
-                        index?.let { formatter.formatCellValue(row.getCell(it)).trim() }.orEmpty()
-
-                    val fullName = if (nameIndex != null) cell(nameIndex) else cell(1)
-                    val phone = if (nameIndex != null) cell(phoneIndex) else cell(5)
-                    val email = if (nameIndex != null) cell(emailIndex) else cell(6)
-                    val address = if (nameIndex != null) cell(addressIndex) else cell(7)
-                    val notes = if (nameIndex != null) cell(notesIndex) else cell(8)
-
-                    if (fullName.isBlank() && phone.isBlank() && email.isBlank() && address.isBlank() && notes.isBlank()) continue
-                    if (fullName.isBlank()) {
-                        skippedRows.add(i + 1)
-                        continue
-                    }
-
-                    val importedId = cell(memberIdIndex)
-                    val memberId = if (importedId.isNotBlank()) {
-                        if (!seenIds.add(importedId)) {
-                            skippedRows.add(i + 1)
-                            continue
-                        }
-                        importedId
-                    } else {
-                        uniqueMemberId()
-                    }
-
-                    parsed += Member(
-                        memberId = memberId,
-                        fullName = fullName,
-                        status = cell(statusIndex).ifBlank { "Active" },
-                        qrCodeHash = cell(qrTokenIndex).ifBlank { SecurityUtils.generateSecureQrToken() },
-                        lastUpdated = cell(lastUpdatedIndex).takeIf(String::isNotBlank)?.let(::parseExcelDate) ?: Instant.now().toString(),
-                        phone = phone.takeIf(String::isNotBlank),
-                        email = email.takeIf(String::isNotBlank),
-                        address = address.takeIf(String::isNotBlank),
-                        notes = notes.takeIf(String::isNotBlank)
-                    )
-                }
-                ImportResult(parsed, skippedRows)
-            }
-            db.memberDao().replaceAllMembers(result.members)
-            result
+            val workbook = XSSFWorkbook()
+            val sheet = workbook.createSheet("EasyPass Import Template")
+            val header = sheet.createRow(0)
+            IMPORT_TEMPLATE_COLUMNS.forEachIndexed { i, title -> header.createCell(i).setCellValue(title) }
+            val file = File(context.cacheDir, "EasyPass_Import_Template.xlsx")
+            FileOutputStream(file).use { workbook.write(it) }
+            return@withContext file
         } catch (e: Exception) {
-            Log.e("DriveSync", "importLocalSheet failed", e)
+            Log.e("DriveSync", "exportImportTemplate failed", e)
             null
         }
+    }
+
+    suspend fun previewLocalSheet(inputStream: java.io.InputStream): ImportResult? = withContext(Dispatchers.IO) {
+        try {
+            parseMembersWorkbook(inputStream)
+        } catch (e: Exception) {
+            Log.e("DriveSync", "previewLocalSheet failed", e)
+            null
+        }
+    }
+
+    suspend fun applyImportResult(result: ImportResult, mode: ImportMode, isPro: Boolean = true): ImportResult = withContext(Dispatchers.IO) {
+        val existingMembers = db.memberDao().getAllMembersList()
+        val duplicateRows = result.duplicateRows.toMutableList()
+        val membersToApply = when (mode) {
+            ImportMode.OVERWRITE -> result.members
+            ImportMode.ADD -> {
+                val existingKeys = existingMembers.flatMap(::duplicateKeysFor).toMutableSet()
+                result.members.filterIndexed { index, member ->
+                    val keys = duplicateKeysFor(member)
+                    if (keys.any { it in existingKeys }) {
+                        duplicateRows.add(index + 2)
+                        false
+                    } else {
+                        existingKeys.addAll(keys)
+                        true
+                    }
+                }
+            }
+        }
+        val finalMembers = if (mode == ImportMode.ADD) existingMembers + membersToApply else membersToApply
+        require(isPro || finalMembers.size <= FREE_TIER_MEMBER_LIMIT) {
+            "Free plan limit exceeded"
+        }
+        db.memberDao().replaceAllMembers(finalMembers)
+        if (!isPro && mode == ImportMode.OVERWRITE) {
+            setFreeLimitTrimmed(false)
+        }
+        result.copy(
+            members = membersToApply,
+            duplicateRows = duplicateRows.distinct().sorted(),
+            originalValidMemberCount = membersToApply.size
+        )
     }
 
     suspend fun relocateFolder(oldConfigId: String, targetFolderId: String): String? = withContext(Dispatchers.IO) {

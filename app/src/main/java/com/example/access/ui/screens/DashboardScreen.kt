@@ -29,6 +29,7 @@ fun DashboardScreen(
     config: Config,
     memberCount: Int,
     syncStatus: SyncStatus,
+    syncMessage: String?,
     recentScans: List<RecentScan>,
     activeRole: String,
     onManualSync: () -> Unit,
@@ -36,6 +37,16 @@ fun DashboardScreen(
     onTriggerSecret: () -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
+    val databaseTitle = when (syncStatus) {
+        SyncStatus.SYNCING -> "Updating organization database..."
+        SyncStatus.HEALTHY -> "Organization database synced."
+        SyncStatus.ERROR -> "Using last synced database"
+    }
+    val databaseDetail = syncMessage ?: when (syncStatus) {
+        SyncStatus.SYNCING -> "Checking your shared Google Drive database."
+        SyncStatus.HEALTHY -> "Your device is using the latest shared database."
+        SyncStatus.ERROR -> "Changes may not upload until connection is restored."
+    }
 
     Column(
         modifier = Modifier
@@ -85,7 +96,7 @@ fun DashboardScreen(
                         containerColor = Color.White.copy(alpha = 0.15f)
                     )
                     DashboardPill(
-                        label = if (syncStatus == SyncStatus.HEALTHY) "Synced" else "Offline",
+                        label = if (syncStatus == SyncStatus.HEALTHY) "Synced" else if (syncStatus == SyncStatus.SYNCING) "Syncing" else "Offline",
                         icon = if (syncStatus == SyncStatus.HEALTHY) Icons.Default.CloudDone else Icons.Default.CloudOff,
                         containerColor = if (syncStatus == SyncStatus.ERROR) Color.Black.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.15f)
                     )
@@ -139,8 +150,8 @@ fun DashboardScreen(
                     }
                     Spacer(Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Cloud Database", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Text("Last check: moments ago", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text(databaseTitle, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text(databaseDetail, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                     }
                     if (syncStatus == SyncStatus.SYNCING) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)

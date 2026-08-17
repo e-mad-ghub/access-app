@@ -4,8 +4,10 @@ import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.access.data.Config
 import com.example.access.data.AppDatabase
 import com.example.access.data.RecentScan
+import com.example.access.util.FREE_TIER_MEMBER_LIMIT
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -26,6 +28,11 @@ class MainScannerViewModel(application: Application) : AndroidViewModel(applicat
     private val scanStateLock = Any()
     private var lastScannedBarcode: String? = null
     private var lastScanElapsedMs: Long = 0L
+    private var isProOrganization: Boolean = false
+
+    fun updateConfig(config: Config) {
+        isProOrganization = config.isPro
+    }
 
     fun processBarcode(barcode: String) {
         val normalizedBarcode = barcode.trim()
@@ -49,7 +56,15 @@ class MainScannerViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         viewModelScope.launch {
-            val member = db.memberDao().getMemberByHash(normalizedBarcode)
+            val member = if (isProOrganization) {
+                db.memberDao().getMemberByHash(normalizedBarcode)
+            } else {
+                db.memberDao()
+                    .getAllMembersList()
+                    .sortedBy { it.fullName.lowercase(Locale.US) }
+                    .take(FREE_TIER_MEMBER_LIMIT)
+                    .firstOrNull { it.qrCodeHash == normalizedBarcode }
+            }
             val isGranted = member != null && member.status.equals("Active", ignoreCase = true)
             val newScan = RecentScan(
                 name = member?.fullName ?: "Unknown User",

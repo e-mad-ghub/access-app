@@ -22,8 +22,8 @@ import com.example.access.data.AppDatabase
 import com.example.access.data.Config
 import com.example.access.ui.MainAppNavigation
 import com.example.access.ui.theme.AccessTheme
+import com.example.access.util.FREE_TIER_MEMBER_LIMIT
 import com.example.access.util.DriveSyncManager
-import com.example.access.util.ImportResult
 import com.example.access.util.FeedbackManager
 import com.example.access.util.SessionManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
 
     private var currentConfig by mutableStateOf(Config())
     private var syncStatus by mutableStateOf(SyncStatus.SYNCING)
+    private var syncMessage by mutableStateOf<String?>(null)
     private var isInitializing by mutableStateOf(true)
 
     private var configFileId: String? = null
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val memberCount by AppDatabase.getDatabase(this).memberDao().getMemberCount().observeAsState(0)
             val recentScans by scannerViewModel.liveScanHistory.collectAsState()
+            val usableMemberCount = if (currentConfig.isPro) memberCount else memberCount.coerceAtMost(FREE_TIER_MEMBER_LIMIT)
 
             AccessTheme(branding = currentConfig.branding) {
                 if (isInitializing) {
@@ -111,13 +113,15 @@ class MainActivity : ComponentActivity() {
                     MainAppNavigation(
                         sessionManager = sessionManager,
                         currentConfig = currentConfig,
-                        memberCount = memberCount,
+                        memberCount = usableMemberCount,
                         syncStatus = syncStatus,
+                        syncMessage = syncMessage,
                         recentScans = recentScans,
                         onManualSync = { configFileId?.let { loadConfig(it) } },
                         onRepairCloud = { /* Logic for repair */ },
                         onConfigUpdated = { 
                             currentConfig = it
+                            scannerViewModel.updateConfig(it)
                             sessionManager.updateConfig(it)
                         },
                         scannerViewModel = scannerViewModel,
@@ -156,26 +160,39 @@ class MainActivity : ComponentActivity() {
         isSyncingAnonymously = account == null
 
         syncStatus = SyncStatus.SYNCING
+        syncMessage = null
         lifecycleScope.launch {
             try {
                 val config = sync.downloadConfig(configId)
                 if (config != null) {
                     currentConfig = config
+                    scannerViewModel.updateConfig(config)
                     sessionManager.updateConfig(config)
-                    val result = sync.downloadAndParseExcel(config.activeDatabaseId)
+                    val result = sync.downloadAndParseExcel(config.activeDatabaseId, config.isPro)
                     if (result != null) {
                         if (result.skippedRows.isNotEmpty()) {
                             Log.w("MainActivity", "Sync completed with ${result.skippedRows.size} skipped rows: ${result.skippedRows}")
                         }
+                        if (result.duplicateRows.isNotEmpty()) {
+                            Log.w("MainActivity", "Sync completed with ${result.duplicateRows.size} duplicate rows: ${result.duplicateRows}")
+                        }
+                        syncMessage = if (result.hasFreeLimitWarning) {
+                            "Free plan limit reached. Only the first $FREE_TIER_MEMBER_LIMIT members are active on this device. Upgrade to Pro to unlock the full database."
+                        } else {
+                            null
+                        }
                         syncStatus = SyncStatus.HEALTHY
                     } else {
+                        syncMessage = "Using last synced database. Changes may not upload until connection is restored."
                         syncStatus = SyncStatus.ERROR
                     }
                 } else {
+                    syncMessage = "Using last synced database. Changes may not upload until connection is restored."
                     syncStatus = SyncStatus.ERROR
                 }
             } catch (e: Exception) {
                 Log.e("MainActivity", "Failed to load config", e)
+                syncMessage = "Using last synced database. Changes may not upload until connection is restored."
                 syncStatus = SyncStatus.ERROR
             }
         }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,8 +27,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.easyapps.easypass.BuildConfig
+import com.example.access.data.AppDatabase
 import com.example.access.data.Config
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.FREE_TIER_MEMBER_LIMIT
+import com.example.access.util.ImportMode
 import com.example.access.util.ImportResult
 import com.example.access.util.SecurityUtils
 import com.example.access.util.SessionManager
@@ -47,20 +51,37 @@ fun AdminSettingsScreen(
     
     var showInviteDialog by remember { mutableStateOf(false) }
     var showJoinDialog by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<ImportResult?>(null) }
+    var importMode by remember { mutableStateOf(ImportMode.ADD) }
+    val db = remember { AppDatabase.getDatabase(context) }
+    val existingMembers by db.memberDao().getAllMembers().observeAsState(emptyList())
+
+    fun shareSpreadsheet(file: java.io.File, title: String) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, title))
+    }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             isBusy = true
             scope.launch {
-                val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@launch
+                val account = GoogleSignIn.getLastSignedInAccount(context)
+                if (account == null) {
+                    isBusy = false
+                    Toast.makeText(context, "Google sign-in is required to update the shared database.", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
                 val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
                 val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
                 context.contentResolver.openInputStream(it)?.use { stream ->
-                    val result = sync.importLocalSheet(stream)
+                    val result = sync.previewLocalSheet(stream)
                     if (result != null) {
-                        sync.exportRoomToExcelAndUpload(config.activeDatabaseId)
-                        val msg = if (result.skippedRows.isEmpty()) "Bulk Import Successful" else "Import completed with ${result.skippedRows.size} skipped rows: ${result.skippedRows}"
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        pendingImport = result
                     } else {
                         Toast.makeText(context, "Import failed", Toast.LENGTH_SHORT).show()
                     }
@@ -114,7 +135,7 @@ fun AdminSettingsScreen(
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("Data Management", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "Bulk import accepts an Excel sheet with headers: Name, Phone, Email, Address, Notes. EasyPass creates member IDs, QR codes, status, and timestamps automatically.",
+                        "Import and export Excel files safely. Preview changes before updating your shared database. Customer imports need headers: Name, Phone, Email, Address, Notes.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
@@ -125,16 +146,8 @@ fun AdminSettingsScreen(
                                 val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@launch
                                 val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
                                 val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
-                                val file = sync.exportLocalBackup()
-                                file?.let {
-                                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it)
-                                    val intent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(intent, "Share Backup"))
-                                }
+                                val file = sync.exportLocalBackup(config.isPro)
+                                file?.let { shareSpreadsheet(it, "Share EasyPass Backup") }
                             }
                         }, 
                         modifier = Modifier.fillMaxWidth(),
@@ -142,7 +155,24 @@ fun AdminSettingsScreen(
                     ) {
                         Icon(Icons.Default.Download, null)
                         Spacer(Modifier.width(12.dp))
-                        Text("Export Local Backup")
+                        Text("Export EasyPass Backup")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@launch
+                                val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+                                val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
+                                sync.exportImportTemplate()?.let { shareSpreadsheet(it, "Share Import Template") }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Description, null)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Download Import Template")
                     }
 
                     OutlinedButton(
@@ -157,6 +187,17 @@ fun AdminSettingsScreen(
                 }
             }
         }
+
+        if (activeRole != SessionManager.ROLE_SCANNER) {
+            Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Roles & Access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    RoleInfoRow(Icons.Default.QrCodeScanner, "Scanner", "Scan passes only. No import, export, billing, or database editing.")
+                    RoleInfoRow(Icons.Default.AdminPanelSettings, "Admin", "Manage members and import/export organization data.")
+                    RoleInfoRow(Icons.Default.VpnKey, "Owner", "Manage billing, branding, organization settings, and access keys.")
+                }
+            }
+        }
         
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
@@ -167,6 +208,102 @@ fun AdminSettingsScreen(
         }
         
         Spacer(modifier = Modifier.height(100.dp))
+    }
+
+    pendingImport?.let { result ->
+        fun normalized(value: String?): String =
+            value.orEmpty().trim().lowercase().replace(Regex("[^a-z0-9@+]"), "")
+
+        fun duplicateKeys(member: com.example.access.data.Member): List<String> {
+            val keys = mutableListOf<String>()
+            val email = normalized(member.email)
+            if (email.isNotBlank()) keys += "email:$email"
+            val phone = normalized(member.phone)
+            if (phone.isNotBlank()) keys += "phone:$phone"
+            return keys
+        }
+
+        val existingKeys = existingMembers.flatMap(::duplicateKeys).toSet()
+        val newMembersForAdd = result.members.filter { member ->
+            duplicateKeys(member).none { it in existingKeys }
+        }
+        val existingDuplicateCount = result.members.size - newMembersForAdd.size
+        val importMembers = if (importMode == ImportMode.ADD) newMembersForAdd else result.members
+        val projectedCount = if (importMode == ImportMode.ADD) existingMembers.size + importMembers.size else importMembers.size
+        val duplicateCount = result.duplicateRows.size + if (importMode == ImportMode.ADD) existingDuplicateCount else 0
+        val freeLimitBlocked = !config.isPro && projectedCount > FREE_TIER_MEMBER_LIMIT
+
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text("Preview Import", fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Choose how EasyPass should apply this spreadsheet before updating your shared database.", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = importMode == ImportMode.ADD,
+                            onClick = { importMode = ImportMode.ADD },
+                            label = { Text("Add to existing") }
+                        )
+                        FilterChip(
+                            selected = importMode == ImportMode.OVERWRITE,
+                            onClick = { importMode = ImportMode.OVERWRITE },
+                            label = { Text("Overwrite") }
+                        )
+                    }
+                    Text("Valid rows: ${result.originalValidMemberCount}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Duplicates skipped: $duplicateCount", style = MaterialTheme.typography.bodyMedium)
+                    Text("Malformed rows skipped: ${result.skippedRows.size}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Projected final members: $projectedCount", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    val names = importMembers.take(5).joinToString { it.fullName }
+                    if (names.isNotBlank()) {
+                        Text("Preview: $names", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                    if (freeLimitBlocked) {
+                        Text(
+                            "Free organizations can manage up to $FREE_TIER_MEMBER_LIMIT members. This import would create $projectedCount members. Upgrade to Pro to continue.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isBusy = true
+                        scope.launch {
+                            val account = GoogleSignIn.getLastSignedInAccount(context)
+                            if (account == null) {
+                                Toast.makeText(context, "Google sign-in is required to update the shared database.", Toast.LENGTH_LONG).show()
+                                isBusy = false
+                                return@launch
+                            }
+                            try {
+                                val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+                                val sync = DriveSyncManager(context, syncManagerFromCred(context, cred).drive)
+                                sync.applyImportResult(result, importMode, config.isPro)
+                                val uploaded = sync.exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
+                                if (uploaded) {
+                                    val msg = "Import complete: $projectedCount active members, $duplicateCount duplicates skipped, ${result.skippedRows.size} malformed rows skipped."
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    pendingImport = null
+                                } else {
+                                    Toast.makeText(context, "Import saved locally, but Drive upload failed. Try manual sync when connection is restored.", Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Import failed. No Drive update was completed.", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isBusy = false
+                            }
+                        }
+                    },
+                    enabled = !freeLimitBlocked && !isBusy
+                ) { Text("Confirm Import") }
+            },
+            dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } }
+        )
     }
 
     if (showInviteDialog) {
@@ -233,6 +370,18 @@ fun AdminSettingsScreen(
 
     if (isBusy) {
         com.example.access.ui.components.LoadingOverlay(isVisible = true, message = "Processing...")
+    }
+}
+
+@Composable
+private fun RoleInfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
     }
 }
 

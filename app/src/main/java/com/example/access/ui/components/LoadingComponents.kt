@@ -89,10 +89,17 @@ fun InitialSplashLoader() {
                 letterSpacing = (-1).sp
             )
             Text(
-                "Membership simplified",
+                "Affordable access control",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF00BFA5),
                 fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "Private Drive database. Minimal device storage.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF78909C),
+                fontWeight = FontWeight.SemiBold
             )
         }
     }

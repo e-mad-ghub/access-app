@@ -185,16 +185,30 @@ class SetupWizardActivity : ComponentActivity() {
         var manualLink by remember { mutableStateOf("") }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Welcome to the world's most effortless membership system.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, color = Color.DarkGray)
+            Text(
+                "Affordable QR access control for small and medium organizations.",
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.DarkGray
+            )
             Spacer(modifier = Modifier.height(24.dp))
 
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDFA)), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Affordable, lightweight, and private by design. EasyPass keeps your organization database in your own Google Drive and uses minimal device storage.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF006064)
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.Top) {
                         Icon(Icons.Default.Info, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Google sign-in is only needed when creating or managing an organization, so EasyPass can write your shared database to Google Drive.",
+                            "Google sign-in is only needed to create or manage your organization database in your own Drive.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF006064)
                         )
@@ -316,7 +330,7 @@ class SetupWizardActivity : ComponentActivity() {
         Column {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
             Text("Data Storage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Paste the Google Drive folder where EasyPass can store the organization database.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Choose the Google Drive folder where EasyPass will keep your shared organization database. You stay in control of the data.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(Modifier.height(32.dp))
             OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Folder Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), placeholder = { Text("https://drive.google.com/...") })
             Spacer(modifier = Modifier.height(24.dp))
@@ -324,7 +338,7 @@ class SetupWizardActivity : ComponentActivity() {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
                     Icon(Icons.Default.Info, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("EasyPass writes only its organization files in this folder. Share it as 'Editor' so authorized devices can sync updates.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
+                    Text("EasyPass writes only its organization files in this folder. The shared database stays in your Drive, while the app keeps only the needed local copy on the device.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
                 }
             }
             Spacer(modifier = Modifier.height(48.dp))
@@ -365,7 +379,7 @@ class SetupWizardActivity : ComponentActivity() {
             Text(selectedFolderName.uppercase(), fontWeight = FontWeight.Black, color = Color(0xFF00BFA5), fontSize = 20.sp)
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "This Google Drive folder will become the shared source of truth for your organization's members, settings, and Pro status.",
+                "This Google Drive folder will become the shared source of truth for your organization's members, settings, and Pro status. EasyPass keeps device storage minimal by syncing from this shared file.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray,
                 textAlign = TextAlign.Center
