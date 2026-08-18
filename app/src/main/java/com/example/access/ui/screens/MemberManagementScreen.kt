@@ -6,6 +6,10 @@ import com.example.access.util.BillingManager
 import com.android.billingclient.api.ProductDetails
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -28,14 +32,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.example.access.data.AppDatabase
 import com.example.access.data.Config
 import com.example.access.data.Member
 import com.example.access.data.MemberDao
+import com.example.access.ui.components.ProfessionalActionRow
+import com.example.access.ui.components.ProfessionalInfoText
 import com.example.access.ui.components.ProfessionalPageHeader
 import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.util.DriveSyncManager
 import com.example.access.util.FREE_TIER_MEMBER_LIMIT
+import com.example.access.util.ImportMode
+import com.example.access.util.ImportResult
 import com.example.access.util.QrBadgeExporter
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -55,6 +64,7 @@ private enum class MemberFilter(val label: String) {
     MISSING_EMAIL("Missing email")
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemberManagementScreen(
     config: Config,
@@ -71,6 +81,9 @@ fun MemberManagementScreen(
     var memberToDelete by remember { mutableStateOf<Member?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf<MemberFilter?>(null) }
+    var showDataTools by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<ImportResult?>(null) }
+    var importMode by remember { mutableStateOf(ImportMode.ADD) }
     
     var isBusy by remember { mutableStateOf(false) }
     var showPaywall by remember { mutableStateOf(false) }
@@ -82,14 +95,33 @@ fun MemberManagementScreen(
         if (config.isPro) members else members.take(FREE_TIER_MEMBER_LIMIT)
     }
 
+    fun normalized(value: String?): String =
+        value.orEmpty().trim().lowercase().replace(Regex("[^a-z0-9@+]"), "")
+
+    fun memberMatchesSearch(member: Member, query: String): Boolean {
+        val normalizedQuery = normalized(query)
+        val searchableFields = listOf(
+            member.fullName,
+            member.memberId,
+            member.status,
+            member.phone.orEmpty(),
+            member.email.orEmpty(),
+            member.address.orEmpty(),
+            member.notes.orEmpty(),
+            member.lastUpdated
+        )
+        return searchableFields.any { it.lowercase().contains(query) } ||
+            normalizedQuery.isNotBlank() && listOf(member.phone, member.email).any {
+                normalized(it).contains(normalizedQuery)
+            }
+    }
+
     val filteredMembers = remember(searchQuery, selectedFilter, usableMembers) {
         val query = searchQuery.trim().lowercase()
         val baseMembers = when {
             query == "@all" || selectedFilter != null -> usableMembers
             query.isBlank() -> emptyList()
-            else -> usableMembers.filter { m ->
-                m.fullName.lowercase().contains(query) || m.memberId.lowercase().contains(query)
-            }
+            else -> usableMembers.filter { memberMatchesSearch(it, query) }
         }
         baseMembers.filter { member ->
             when (selectedFilter) {
@@ -102,22 +134,142 @@ fun MemberManagementScreen(
         }.sortedBy { it.fullName.lowercase() }
     }
 
+    fun shareSpreadsheet(file: java.io.File, title: String) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, title))
+    }
+
+    fun driveSyncOrNull(): DriveSyncManager? {
+        val account = GoogleSignIn.getLastSignedInAccount(context)
+        if (account == null) {
+            Toast.makeText(context, "Google sign-in is required to update the shared database.", Toast.LENGTH_LONG).show()
+            return null
+        }
+        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply {
+            selectedAccount = account.account
+        }
+        return DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            isBusy = true
+            scope.launch {
+                try {
+                    val sync = driveSyncOrNull() ?: return@launch
+                    context.contentResolver.openInputStream(it)?.use { stream ->
+                        val result = sync.previewLocalSheet(stream)
+                        if (result != null) {
+                            pendingImport = result
+                            showDataTools = false
+                        } else {
+                            Toast.makeText(context, "Import failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } finally {
+                    isBusy = false
+                }
+            }
+        }
+    }
+
+    fun updateMemberStatus(member: Member) {
+        isBusy = true
+        scope.launch {
+            try {
+                val nextStatus = if (member.status == "Active") "Suspended" else "Active"
+                withContext(Dispatchers.IO) {
+                    db.memberDao().updateStatus(member.memberId, nextStatus)
+                    val account = GoogleSignIn.getLastSignedInAccount(context)
+                    if (account != null) {
+                        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply {
+                            selectedAccount = account.account
+                        }
+                        DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
+                            .exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Status updated locally, but Drive sync failed. Try manual sync.", Toast.LENGTH_LONG).show()
+            } finally {
+                isBusy = false
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
         ProfessionalPageHeader(
             title = "Members",
             subtitle = "Directory and pass management for this organization.",
             action = {
-                FloatingActionButton(
-                    onClick = { if (!config.isPro && members.size >= FREE_TIER_MEMBER_LIMIT) showPaywall = true else showAddDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add member")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SmallFloatingActionButton(
+                        onClick = { showDataTools = true },
+                        containerColor = Color.White,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.size(52.dp)
+                    ) {
+                        Icon(Icons.Default.Storage, contentDescription = "Bulk data tools")
+                    }
+                    FloatingActionButton(
+                        onClick = { if (!config.isPro && members.size >= FREE_TIER_MEMBER_LIMIT) showPaywall = true else showAddDialog = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.size(52.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add member")
+                    }
                 }
             }
         )
+
+        if (showDataTools) {
+            ModalBottomSheet(onDismissRequest = { showDataTools = false }) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Member data tools", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    ProfessionalInfoText("Import and export Excel files safely. Customer imports need headers: Name, Phone, Email, Address, Notes.")
+                    ProfessionalActionRow(
+                        icon = Icons.Default.Download,
+                        title = "Export EasyPass backup",
+                        body = "Download a full app backup spreadsheet.",
+                        onClick = {
+                            scope.launch {
+                                val sync = driveSyncOrNull() ?: return@launch
+                                sync.exportLocalBackup(config.isPro)?.let { shareSpreadsheet(it, "Share EasyPass Backup") }
+                            }
+                        }
+                    )
+                    ProfessionalActionRow(
+                        icon = Icons.Default.Description,
+                        title = "Download import template",
+                        body = "Create a blank spreadsheet with the supported import columns.",
+                        onClick = {
+                            scope.launch {
+                                val sync = driveSyncOrNull() ?: return@launch
+                                sync.exportImportTemplate()?.let { shareSpreadsheet(it, "Share Import Template") }
+                            }
+                        }
+                    )
+                    ProfessionalActionRow(
+                        icon = Icons.Default.Upload,
+                        title = "Bulk import spreadsheet",
+                        body = "Preview valid, skipped, and duplicate rows before updating.",
+                        onClick = { importLauncher.launch("*/*") }
+                    )
+                    Spacer(Modifier.height(18.dp))
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(18.dp))
 
@@ -178,7 +330,13 @@ fun MemberManagementScreen(
         } else {
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 80.dp)) {
                 items(filteredMembers, key = { it.memberId }) { member ->
-                    MemberBadgeCard(member = member, config = config, onEdit = { memberToEdit = it }, onDelete = { memberToDelete = it }, onStatusChange = { isBusy = it })
+                    MemberBadgeCard(
+                        member = member,
+                        config = config,
+                        onEdit = { memberToEdit = it },
+                        onDelete = { memberToDelete = it },
+                        onStatusChange = { updateMemberStatus(it) }
+                    )
                 }
             }
         }
@@ -255,6 +413,92 @@ fun MemberManagementScreen(
         }, dismissButton = { TextButton(onClick = { memberToDelete = null }) { Text("Cancel") } })
     }
 
+    pendingImport?.let { result ->
+        fun duplicateKeys(member: Member): List<String> {
+            val keys = mutableListOf<String>()
+            val email = normalized(member.email)
+            if (email.isNotBlank()) keys += "email:$email"
+            val phone = normalized(member.phone)
+            if (phone.isNotBlank()) keys += "phone:$phone"
+            return keys
+        }
+
+        val existingKeys = members.flatMap(::duplicateKeys).toSet()
+        val newMembersForAdd = result.members.filter { member ->
+            duplicateKeys(member).none { it in existingKeys }
+        }
+        val existingDuplicateCount = result.members.size - newMembersForAdd.size
+        val importMembers = if (importMode == ImportMode.ADD) newMembersForAdd else result.members
+        val projectedCount = if (importMode == ImportMode.ADD) members.size + importMembers.size else importMembers.size
+        val duplicateCount = result.duplicateRows.size + if (importMode == ImportMode.ADD) existingDuplicateCount else 0
+        val freeLimitBlocked = !config.isPro && projectedCount > FREE_TIER_MEMBER_LIMIT
+
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text("Preview Import", fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Choose how EasyPass should apply this spreadsheet before updating your shared database.", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = importMode == ImportMode.ADD,
+                            onClick = { importMode = ImportMode.ADD },
+                            label = { Text("Add to existing") }
+                        )
+                        FilterChip(
+                            selected = importMode == ImportMode.OVERWRITE,
+                            onClick = { importMode = ImportMode.OVERWRITE },
+                            label = { Text("Overwrite") }
+                        )
+                    }
+                    Text("Valid rows: ${result.originalValidMemberCount}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Duplicates skipped: $duplicateCount", style = MaterialTheme.typography.bodyMedium)
+                    Text("Malformed rows skipped: ${result.skippedRows.size}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Projected final members: $projectedCount", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    val names = importMembers.take(5).joinToString { it.fullName }
+                    if (names.isNotBlank()) {
+                        Text("Preview: $names", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                    if (freeLimitBlocked) {
+                        Text(
+                            "Free organizations can manage up to $FREE_TIER_MEMBER_LIMIT members. This import would create $projectedCount members. Upgrade to Pro to continue.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isBusy = true
+                        scope.launch {
+                            try {
+                                val sync = driveSyncOrNull() ?: return@launch
+                                sync.applyImportResult(result, importMode, config.isPro)
+                                val uploaded = sync.exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
+                                if (uploaded) {
+                                    val msg = "Import complete: $projectedCount active members, $duplicateCount duplicates skipped, ${result.skippedRows.size} malformed rows skipped."
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    pendingImport = null
+                                } else {
+                                    Toast.makeText(context, "Import saved locally, but Drive upload failed. Try manual sync when connection is restored.", Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Import failed. No Drive update was completed.", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isBusy = false
+                            }
+                        }
+                    },
+                    enabled = !freeLimitBlocked && !isBusy
+                ) { Text("Confirm Import") }
+            },
+            dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("Cancel") } }
+        )
+    }
+
     if (showPaywall) {
         PaywallDialog(
             onDismissRequest = { showPaywall = false },
@@ -279,10 +523,8 @@ fun MemberManagementScreen(
 }
 
 @Composable
-fun MemberBadgeCard(member: Member, config: Config, onEdit: (Member) -> Unit, onDelete: (Member) -> Unit, onStatusChange: (Boolean) -> Unit) {
+fun MemberBadgeCard(member: Member, config: Config, onEdit: (Member) -> Unit, onDelete: (Member) -> Unit, onStatusChange: (Member) -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val db = remember { AppDatabase.getDatabase(context) }
     val primaryColor = MaterialTheme.colorScheme.primary
     Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD0D5DD)), shadowElevation = 0.dp) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -317,24 +559,13 @@ fun MemberBadgeCard(member: Member, config: Config, onEdit: (Member) -> Unit, on
                     Text("Share QR pass", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        onStatusChange(true)
-                        scope.launch {
-                            val nextS = if (member.status == "Active") "Suspended" else "Active"
-                            withContext(Dispatchers.IO) {
-                                db.memberDao().updateStatus(member.memberId, nextS)
-                                val acc = GoogleSignIn.getLastSignedInAccount(context)
-                                if (acc != null) {
-                                    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
-                                    DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
-                                }
-                            }
-                            onStatusChange(false)
-                        }
-                    }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(16.dp)) {
-                        Icon(if (member.status == "Active") Icons.Default.Block else Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (member.status == "Active") "Suspend" else "Reactivate", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    OutlinedButton(
+                        onClick = { onStatusChange(member) },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Text(if (member.status == "Active") "Suspend" else "Reactivate", maxLines = 1, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                     OutlinedButton(onClick = { onEdit(member) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(16.dp)) {
                         Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
