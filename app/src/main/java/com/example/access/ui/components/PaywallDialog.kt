@@ -140,7 +140,7 @@ fun PaywallDialog(
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     PaywallBenefit(Icons.Default.Groups, "Unlimited members", "Remove the free member limit for this organization.")
-                    PaywallBenefit(Icons.Default.Security, "Owner controls", "Use branding, field controls, role keys, and storage tools.")
+                    PaywallBenefit(Icons.Default.Security, "Director controls", "Use branding, field controls, role passwords, and storage tools.")
                     PaywallBenefit(Icons.Default.CloudDone, "Shared across devices", "Pro status is stored in the organization database in Google Drive.")
                 }
 

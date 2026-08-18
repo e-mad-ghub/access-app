@@ -128,7 +128,7 @@ fun OwnerDashboardScreen(
 
     ProfessionalScreen(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp)) {
         ProfessionalPageHeader(
-            title = "Owner Control Center",
+            title = "Director Control Center",
             subtitle = "Manage plan, branding, access keys, and organization storage."
         )
 
@@ -250,7 +250,7 @@ fun OwnerDashboardScreen(
         }
         OperationCard(
             title = "Member data fields",
-            subtitle = "Choose which optional fields appear when admins manage member records.",
+            subtitle = "Choose which optional fields appear when managers manage member records.",
             icon = Icons.Default.ViewList
         ) {
             Column {
@@ -280,7 +280,7 @@ fun OwnerDashboardScreen(
         }
         OperationCard(
             title = "Security credentials",
-            subtitle = "Change management passwords separately so Admin and Owner access stays controlled.",
+            subtitle = "Change management passwords separately so Manager and Director access stays controlled.",
             icon = Icons.Default.Security
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -296,7 +296,7 @@ fun OwnerDashboardScreen(
                 ) {
                     Icon(Icons.Default.AdminPanelSettings, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("Change admin password", fontWeight = FontWeight.SemiBold)
+                    Text("Change manager password", fontWeight = FontWeight.SemiBold)
                 }
                 OutlinedButton(
                     onClick = { passwordChangeRole = SessionManager.ROLE_OWNER },
@@ -305,7 +305,7 @@ fun OwnerDashboardScreen(
                 ) {
                     Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("Change owner password", fontWeight = FontWeight.SemiBold)
+                    Text("Change director password", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -324,7 +324,7 @@ fun OwnerDashboardScreen(
                     }
                 )
                 Text(
-                    "This folder holds the EasyPass organization database. Owner changes need Google Drive access so the database can be updated safely.",
+                    "This folder holds the EasyPass organization database. Director changes need Google Drive access so the database can be updated safely.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
@@ -379,8 +379,8 @@ fun OwnerDashboardScreen(
             onDismiss = { passwordChangeRole = null },
             onSave = { newPassword ->
                 val oppositeRole = if (role == SessionManager.ROLE_ADMIN) SessionManager.ROLE_OWNER else SessionManager.ROLE_ADMIN
-                val roleLabel = if (role == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
-                val oppositeLabel = if (oppositeRole == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+                val roleLabel = roleDisplayName(role)
+                val oppositeLabel = roleDisplayName(oppositeRole)
                 val oppositeHash = config.roleHashes[oppositeRole]
                 if (oppositeHash != null && SecurityUtils.verifyPassword(newPassword, oppositeHash)) {
                     Toast.makeText(context, "$roleLabel password conflicts with existing $oppositeLabel password", Toast.LENGTH_LONG).show()
@@ -407,7 +407,7 @@ private fun ChangeRolePasswordDialog(
     onDismiss: () -> Unit,
     onSave: (String) -> Unit
 ) {
-    val roleLabel = if (role == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+    val roleLabel = roleDisplayName(role)
     var password by remember(role) { mutableStateOf("") }
     var confirmPassword by remember(role) { mutableStateOf("") }
     val mismatch = confirmPassword.isNotEmpty() && confirmPassword != password
@@ -472,6 +472,10 @@ private fun ChangeRolePasswordDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+private fun roleDisplayName(role: String): String {
+    return if (role == SessionManager.ROLE_ADMIN) "Manager" else "Director"
 }
 
 @Composable

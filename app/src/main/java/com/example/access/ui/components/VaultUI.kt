@@ -80,7 +80,7 @@ fun PasswordElevationDialog(
         }
         if (signInError == null && GoogleSignIn.getLastSignedInAccount(context) != null) {
             val role = sessionManager.applyPendingRole()
-            Toast.makeText(context, "Elevated to ${role?.uppercase()}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Switched to ${roleDisplayName(role)}", Toast.LENGTH_SHORT).show()
         } else {
             sessionManager.setPendingRole(null)
             Toast.makeText(context, "Identity Verification Failed${signInError?.let { error -> " ($error)" } ?: ""}", Toast.LENGTH_LONG).show()
@@ -102,7 +102,7 @@ fun PasswordElevationDialog(
                 signInLauncher.launch(GoogleSignIn.getClient(context, gso).signInIntent)
             } else {
                 sessionManager.setActiveRole(role)
-                Toast.makeText(context, "Elevated to ${role.uppercase()}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Switched to ${roleDisplayName(role)}", Toast.LENGTH_SHORT).show()
                 onSessionChanged()
                 onDismiss()
             }
@@ -120,7 +120,7 @@ fun PasswordElevationDialog(
             if (matches.contains(selectedRole)) {
                 proceedWithRole(selectedRole)
             } else {
-                val roleLabel = if (selectedRole == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+                val roleLabel = roleDisplayName(selectedRole)
                 Toast.makeText(context, "Incorrect $roleLabel Password", Toast.LENGTH_SHORT).show()
                 onDismiss()
                 onSessionChanged()
@@ -146,7 +146,7 @@ fun ScannerBanner(onChangeSession: () -> Unit) {
                 Box(modifier = Modifier.size(8.dp).background(Color.White.copy(alpha = 0.9f), CircleShape))
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = "MODE: SCANNER",
+                    text = "Role: Scanner",
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 11.sp
@@ -186,7 +186,7 @@ fun ElevatedBanner(role: String, onEndSession: () -> Unit) {
                 Box(modifier = Modifier.size(8.dp).background(Color.White.copy(alpha = 0.9f), CircleShape))
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = "MANAGEMENT: ${role.uppercase()}",
+                    text = "Role: ${roleDisplayName(role)}",
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 11.sp
@@ -222,7 +222,7 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
     var selectedRole by remember { mutableStateOf(SessionManager.ROLE_ADMIN) }
     var password by remember { mutableStateOf("") }
     var showRoleInfo by remember { mutableStateOf(false) }
-    val selectedRoleLabel = if (selectedRole == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+    val selectedRoleLabel = roleDisplayName(selectedRole)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -254,8 +254,8 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             RoleExplanationLine("Scanner", "Scan passes only. No database editing.")
-                            RoleExplanationLine("Admin", "Manage members and import/export organization data.")
-                            RoleExplanationLine("Owner", "Manage billing, branding, organization settings, and passwords.")
+                            RoleExplanationLine("Manager", "Manage members and import/export organization data.")
+                            RoleExplanationLine("Director", "Manage billing, branding, organization settings, and passwords.")
                         }
                     }
                 }
@@ -266,7 +266,7 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                     FilterChip(
                         selected = selectedRole == SessionManager.ROLE_ADMIN,
                         onClick = { selectedRole = SessionManager.ROLE_ADMIN },
-                        label = { Text("Admin") },
+                        label = { Text("Manager") },
                         leadingIcon = {
                             Icon(Icons.Default.AdminPanelSettings, null, modifier = Modifier.size(18.dp))
                         },
@@ -275,7 +275,7 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                     FilterChip(
                         selected = selectedRole == SessionManager.ROLE_OWNER,
                         onClick = { selectedRole = SessionManager.ROLE_OWNER },
-                        label = { Text("Owner") },
+                        label = { Text("Director") },
                         leadingIcon = {
                             Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(18.dp))
                         },
@@ -309,6 +309,14 @@ private fun RoleExplanationLine(title: String, body: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun roleDisplayName(role: String?): String {
+    return when (role) {
+        SessionManager.ROLE_ADMIN -> "Manager"
+        SessionManager.ROLE_OWNER -> "Director"
+        else -> "Scanner"
     }
 }
 

@@ -331,7 +331,7 @@ class SetupWizardActivity : ComponentActivity() {
             OutlinedTextField(
                 value = adminPass,
                 onValueChange = { adminPass = it },
-                label = { Text("New Admin Key") },
+                label = { Text("New Manager Password") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true,
@@ -342,13 +342,13 @@ class SetupWizardActivity : ComponentActivity() {
             OutlinedTextField(
                 value = adminPassConfirm,
                 onValueChange = { adminPassConfirm = it },
-                label = { Text("Confirm Admin Key") },
+                label = { Text("Confirm Manager Password") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true,
                 isError = adminMismatch,
                 supportingText = {
-                    if (adminMismatch) Text("Admin key confirmation does not match.")
+                    if (adminMismatch) Text("Manager password confirmation does not match.")
                 },
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
@@ -357,7 +357,7 @@ class SetupWizardActivity : ComponentActivity() {
             OutlinedTextField(
                 value = ownerPass,
                 onValueChange = { ownerPass = it },
-                label = { Text("New Owner Key") },
+                label = { Text("New Director Password") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true,
@@ -368,13 +368,13 @@ class SetupWizardActivity : ComponentActivity() {
             OutlinedTextField(
                 value = ownerPassConfirm,
                 onValueChange = { ownerPassConfirm = it },
-                label = { Text("Confirm Owner Key") },
+                label = { Text("Confirm Director Password") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true,
                 isError = ownerMismatch,
                 supportingText = {
-                    if (ownerMismatch) Text("Owner key confirmation does not match.")
+                    if (ownerMismatch) Text("Director password confirmation does not match.")
                 },
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
@@ -382,7 +382,7 @@ class SetupWizardActivity : ComponentActivity() {
             if (keysMatchEachOther) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "Admin and Owner keys must be different.",
+                    "Manager and Director passwords must be different.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )

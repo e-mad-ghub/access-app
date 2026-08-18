@@ -59,7 +59,7 @@ fun MainAppNavigation(
             list.add(TabItem("Members", Icons.Default.Group))
         }
         if (activeRole == SessionManager.ROLE_OWNER) {
-            list.add(TabItem("Owner", Icons.Default.VpnKey))
+            list.add(TabItem("Director", Icons.Default.VpnKey))
         }
         list
     }
@@ -223,7 +223,7 @@ private fun TabPageContent(
                 onLeaveOrganization = onLeaveOrganization
             )
         }
-        "Owner" -> {
+        "Director" -> {
             OwnerDashboardScreen(
                 config = currentConfig,
                 billingViewModel = billingViewModel,
