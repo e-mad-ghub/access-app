@@ -9,6 +9,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -84,9 +87,6 @@ fun PasswordElevationDialog(
         onSessionChanged()
     }
 
-    var pendingMatches by remember { mutableStateOf<List<String>?>(null) }
-    var pendingPassword by remember { mutableStateOf("") }
-
     fun proceedWithRole(role: String) {
         Toast.makeText(context, "Key Accepted", Toast.LENGTH_SHORT).show()
         if (role == SessionManager.ROLE_ADMIN || role == SessionManager.ROLE_OWNER) {
@@ -112,68 +112,17 @@ fun PasswordElevationDialog(
         }
     }
 
-    if (pendingMatches != null && pendingMatches!!.size > 1) {
-        // Show role selection dialog
-        AlertDialog(
-            onDismissRequest = {
-                pendingMatches = null
-                pendingPassword = ""
-            },
-            title = { Text("Select Role", fontWeight = FontWeight.Black) },
-            text = {
-                Text("This key matches multiple roles. Choose which role to elevate to:")
-            },
-            confirmButton = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    pendingMatches!!.forEach { role ->
-                        Button(
-                            onClick = {
-                                proceedWithRole(role)
-                                pendingMatches = null
-                                pendingPassword = ""
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(role.uppercase())
-                        }
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        pendingMatches = null
-                        pendingPassword = ""
-                    }
-                ) { Text("Cancel") }
-            }
-        )
-        return
-    }
-
     PasswordDialog(
         onDismiss = onDismiss,
-        onConfirm = { password ->
+        onConfirm = { selectedRole, password ->
             val matches = sessionManager.checkPasswordAll(password)
-            when (matches.size) {
-                0 -> {
-                    Toast.makeText(context, "Incorrect Security Key", Toast.LENGTH_SHORT).show()
-                    onDismiss()
-                    onSessionChanged()
-                }
-                1 -> {
-                    proceedWithRole(matches.first())
-                }
-                else -> {
-                    // Multiple matches - store and show role selection
-                    pendingMatches = matches
-                    pendingPassword = password
-                }
+            if (matches.contains(selectedRole)) {
+                proceedWithRole(selectedRole)
+            } else {
+                val roleLabel = if (selectedRole == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+                Toast.makeText(context, "Incorrect $roleLabel Password", Toast.LENGTH_SHORT).show()
+                onDismiss()
+                onSessionChanged()
             }
         }
     )
@@ -268,22 +217,47 @@ private fun roleBannerColor(role: String): Color {
 }
 
 @Composable
-fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var selectedRole by remember { mutableStateOf(SessionManager.ROLE_ADMIN) }
     var password by remember { mutableStateOf("") }
+    val selectedRoleLabel = if (selectedRole == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Vault Unlock", fontWeight = FontWeight.Black) },
+        title = { Text("Switch Role", fontWeight = FontWeight.Black) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Admin and Owner sessions can change the shared organization database. If you are not signed in, EasyPass will ask for Google access before writing changes.",
+                    "Choose the management role for this session, then enter its password.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedRole == SessionManager.ROLE_ADMIN,
+                        onClick = { selectedRole = SessionManager.ROLE_ADMIN },
+                        label = { Text("Admin") },
+                        leadingIcon = {
+                            Icon(Icons.Default.AdminPanelSettings, null, modifier = Modifier.size(18.dp))
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = selectedRole == SessionManager.ROLE_OWNER,
+                        onClick = { selectedRole = SessionManager.ROLE_OWNER },
+                        label = { Text("Owner") },
+                        leadingIcon = {
+                            Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(18.dp))
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Security Key") },
+                    label = { Text("$selectedRoleLabel Password") },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
@@ -293,9 +267,10 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
         },
         confirmButton = { 
             Button(
-                onClick = { onConfirm(password) },
+                onClick = { onConfirm(selectedRole, password) },
+                enabled = password.isNotBlank(),
                 shape = RoundedCornerShape(12.dp)
-            ) { Text("Unlock") }
+            ) { Text("Switch to $selectedRoleLabel") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

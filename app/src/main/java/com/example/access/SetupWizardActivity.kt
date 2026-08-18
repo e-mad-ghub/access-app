@@ -63,6 +63,8 @@ class SetupWizardActivity : ComponentActivity() {
 
     private var adminPass by mutableStateOf("")
     private var ownerPass by mutableStateOf("")
+    private var adminPassConfirm by mutableStateOf("")
+    private var ownerPassConfirm by mutableStateOf("")
 
     private var encryptedInviteKey by mutableStateOf<String?>(null)
 
@@ -313,15 +315,80 @@ class SetupWizardActivity : ComponentActivity() {
     
     @Composable
     fun PasswordStep() {
+        val adminMismatch = adminPassConfirm.isNotEmpty() && adminPassConfirm != adminPass
+        val ownerMismatch = ownerPassConfirm.isNotEmpty() && ownerPassConfirm != ownerPass
+        val keysMatchEachOther = adminPass.isNotEmpty() && ownerPass.isNotEmpty() && adminPass == ownerPass
+        val canContinue = adminPass.isNotEmpty() &&
+            ownerPass.isNotEmpty() &&
+            adminPassConfirm == adminPass &&
+            ownerPassConfirm == ownerPass &&
+            !keysMatchEachOther
+
         Column {
             Text("Security Profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text("Set private keys to authorize management actions. These keys stay separate from your Google account.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(modifier = Modifier.height(32.dp))
-            OutlinedTextField(value = adminPass, onValueChange = { adminPass = it }, label = { Text("New Admin Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
+            OutlinedTextField(
+                value = adminPass,
+                onValueChange = { adminPass = it },
+                label = { Text("New Admin Key") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
             Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(value = ownerPass, onValueChange = { ownerPass = it }, label = { Text("New Owner Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
+            OutlinedTextField(
+                value = adminPassConfirm,
+                onValueChange = { adminPassConfirm = it },
+                label = { Text("Confirm Admin Key") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                isError = adminMismatch,
+                supportingText = {
+                    if (adminMismatch) Text("Admin key confirmation does not match.")
+                },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = ownerPass,
+                onValueChange = { ownerPass = it },
+                label = { Text("New Owner Key") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = ownerPassConfirm,
+                onValueChange = { ownerPassConfirm = it },
+                label = { Text("Confirm Owner Key") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                isError = ownerMismatch,
+                supportingText = {
+                    if (ownerMismatch) Text("Owner key confirmation does not match.")
+                },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
+            if (keysMatchEachOther) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Admin and Owner keys must be different.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
             Spacer(modifier = Modifier.height(48.dp))
-            Button(onClick = { currentStep = SetupStep.PASTE_LINK }, enabled = adminPass.isNotEmpty() && ownerPass.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) { Text("Setup Storage Hub", fontWeight = FontWeight.Black) }
+            Button(onClick = { currentStep = SetupStep.PASTE_LINK }, enabled = canContinue, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) { Text("Setup Storage Hub", fontWeight = FontWeight.Black) }
         }
     }
 

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -34,6 +35,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -56,6 +59,7 @@ import com.example.access.util.BillingManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.access.util.SessionManager
 import java.io.File
 import java.io.FileOutputStream
 
@@ -74,8 +78,7 @@ fun OwnerDashboardScreen(
     val scrollState = rememberScrollState()
     var orgName by remember { mutableStateOf(config.branding.organizationName) }
     var selectedColor by remember { mutableStateOf(config.branding.primaryColor) }
-    var adminPass by remember { mutableStateOf("") }
-    var ownerPass by remember { mutableStateOf("") }
+    var passwordChangeRole by remember { mutableStateOf<String?>(null) }
     var activeFolderName by remember { mutableStateOf("Loading...") }
     var folderLink by remember { mutableStateOf("") }
     var isBusy by remember { mutableStateOf(false) }
@@ -277,39 +280,32 @@ fun OwnerDashboardScreen(
         }
         OperationCard(
             title = "Security credentials",
-            subtitle = "Set separate access keys so Admin and Owner roles stay distinct.",
+            subtitle = "Change management passwords separately so Admin and Owner access stays controlled.",
             icon = Icons.Default.Security
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                OutlinedTextField(value = adminPass, onValueChange = { adminPass = it }, label = { Text("New Admin Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                OutlinedTextField(value = ownerPass, onValueChange = { ownerPass = it }, label = { Text("New Owner Key") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                Button(onClick = {
-                    // Validate identical passwords
-                    if (adminPass.isNotEmpty() && ownerPass.isNotEmpty() && adminPass == ownerPass) {
-                        Toast.makeText(context, "Admin and Owner keys must be different", Toast.LENGTH_LONG).show()
-                        return@Button
-                    }
-                    // Validate admin key doesn't match existing owner key
-                    if (adminPass.isNotEmpty() && config.roleHashes["owner"] != null && 
-                        SecurityUtils.verifyPassword(adminPass, config.roleHashes["owner"]!!)) {
-                        Toast.makeText(context, "Admin key conflicts with existing Owner key", Toast.LENGTH_LONG).show()
-                        return@Button
-                    }
-                    // Validate owner key doesn't match existing admin key
-                    if (ownerPass.isNotEmpty() && config.roleHashes["admin"] != null &&
-                        SecurityUtils.verifyPassword(ownerPass, config.roleHashes["admin"]!!)) {
-                        Toast.makeText(context, "Owner key conflicts with existing Admin key", Toast.LENGTH_LONG).show()
-                        return@Button
-                    }
-                    isBusy = true
-                    val newH = config.roleHashes.toMutableMap()
-                    if (adminPass.isNotEmpty()) newH["admin"] = SecurityUtils.hashPassword(adminPass)
-                    if (ownerPass.isNotEmpty()) newH["owner"] = SecurityUtils.hashPassword(ownerPass)
-                    updateConfigOnDrive(context, config.copy(roleHashes = newH)) { onConfigUpdated(it); adminPass = ""; ownerPass = ""; isBusy = false }
-                }, modifier = Modifier.fillMaxWidth(), enabled = adminPass.isNotEmpty() || ownerPass.isNotEmpty(), shape = RoundedCornerShape(16.dp)) {
-                    Icon(Icons.Default.Save, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Update access keys")
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Use these actions only when you want to replace a role password. Existing passwords stay unchanged until you save a new one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+                OutlinedButton(
+                    onClick = { passwordChangeRole = SessionManager.ROLE_ADMIN },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Default.AdminPanelSettings, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Change admin password", fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = { passwordChangeRole = SessionManager.ROLE_OWNER },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Change owner password", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -377,7 +373,105 @@ fun OwnerDashboardScreen(
             errorMessage = (billingState as? BillingManager.BillingState.ERROR)?.message
         )
     }
+    passwordChangeRole?.let { role ->
+        ChangeRolePasswordDialog(
+            role = role,
+            onDismiss = { passwordChangeRole = null },
+            onSave = { newPassword ->
+                val oppositeRole = if (role == SessionManager.ROLE_ADMIN) SessionManager.ROLE_OWNER else SessionManager.ROLE_ADMIN
+                val roleLabel = if (role == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+                val oppositeLabel = if (oppositeRole == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+                val oppositeHash = config.roleHashes[oppositeRole]
+                if (oppositeHash != null && SecurityUtils.verifyPassword(newPassword, oppositeHash)) {
+                    Toast.makeText(context, "$roleLabel password conflicts with existing $oppositeLabel password", Toast.LENGTH_LONG).show()
+                    return@ChangeRolePasswordDialog
+                }
+                isBusy = true
+                val newHashes = config.roleHashes.toMutableMap()
+                newHashes[role] = SecurityUtils.hashPassword(newPassword)
+                updateConfigOnDrive(context, config.copy(roleHashes = newHashes)) {
+                    onConfigUpdated(it)
+                    passwordChangeRole = null
+                    isBusy = false
+                    Toast.makeText(context, "$roleLabel password updated", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
     if (isBusy) com.example.access.ui.components.LoadingOverlay(isVisible = true, message = "Processing...")
+}
+
+@Composable
+private fun ChangeRolePasswordDialog(
+    role: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    val roleLabel = if (role == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
+    var password by remember(role) { mutableStateOf("") }
+    var confirmPassword by remember(role) { mutableStateOf("") }
+    val mismatch = confirmPassword.isNotEmpty() && confirmPassword != password
+    val canSave = password.isNotEmpty() && confirmPassword == password
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                if (role == SessionManager.ROLE_ADMIN) Icons.Default.AdminPanelSettings else Icons.Default.VpnKey,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        title = { Text("Change ${roleLabel.lowercase()} password", fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    "Enter the new $roleLabel password twice. The current password remains active until this change is saved.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("New $roleLabel Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirm $roleLabel Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    isError = mismatch,
+                    supportingText = {
+                        when {
+                            confirmPassword.isEmpty() && password.isNotEmpty() -> Text("Confirm this password before saving.")
+                            mismatch -> Text("$roleLabel password confirmation does not match.")
+                        }
+                    },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(password) },
+                enabled = canSave,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Save password")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
