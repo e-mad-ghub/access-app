@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -220,10 +221,22 @@ private fun roleBannerColor(role: String): Color {
 fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
     var selectedRole by remember { mutableStateOf(SessionManager.ROLE_ADMIN) }
     var password by remember { mutableStateOf("") }
+    var showRoleInfo by remember { mutableStateOf(false) }
     val selectedRoleLabel = if (selectedRole == SessionManager.ROLE_ADMIN) "Admin" else "Owner"
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Switch Role", fontWeight = FontWeight.Black) },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Switch Role", fontWeight = FontWeight.Black)
+                IconButton(onClick = { showRoleInfo = !showRoleInfo }) {
+                    Icon(Icons.Default.Info, contentDescription = "Role information")
+                }
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
@@ -231,6 +244,21 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (showRoleInfo) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            RoleExplanationLine("Scanner", "Scan passes only. No database editing.")
+                            RoleExplanationLine("Admin", "Manage members and import/export organization data.")
+                            RoleExplanationLine("Owner", "Manage billing, branding, organization settings, and passwords.")
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -274,6 +302,14 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+@Composable
+private fun RoleExplanationLine(title: String, body: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 /**

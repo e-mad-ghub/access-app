@@ -27,7 +27,6 @@ import com.example.access.ui.components.ProfessionalActionRow
 import com.example.access.ui.components.ProfessionalPageHeader
 import com.example.access.ui.components.ProfessionalScreen
 import com.example.access.ui.components.ProfessionalSectionCard
-import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.util.SecurityUtils
 import com.example.access.util.SessionManager
 
@@ -76,18 +75,6 @@ fun AdminSettingsScreen(
                 destructive = true,
                 onClick = { showLeaveDialog = true }
             )
-        }
-
-        ProfessionalSectionCard(
-            title = "Role access",
-            subtitle = "Current device mode: ${activeRole.uppercase()}",
-            icon = Icons.Default.AdminPanelSettings
-        ) {
-            RoleInfoRow(Icons.Default.QrCodeScanner, "Scanner", "READ ONLY", "Scan passes only. No import, export, billing, or database editing.")
-            HorizontalDivider(color = Color(0xFFE4E7EC))
-            RoleInfoRow(Icons.Default.AdminPanelSettings, "Admin", "MANAGE DATA", "Manage members and import/export organization data.")
-            HorizontalDivider(color = Color(0xFFE4E7EC))
-            RoleInfoRow(Icons.Default.VpnKey, "Owner", "FULL CONTROL", "Manage billing, branding, organization settings, and access keys.")
         }
 
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -195,28 +182,4 @@ fun AdminSettingsScreen(
         )
     }
 
-}
-
-@Composable
-private fun RoleInfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, label: String, body: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                ProfessionalStatusChip(label, Color(0xFF667085))
-            }
-            Text(body, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-        }
-    }
 }
