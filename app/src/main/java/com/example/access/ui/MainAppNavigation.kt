@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.access.MainScannerViewModel
@@ -22,6 +23,9 @@ import com.example.access.data.Config
 import com.example.access.data.RecentScan
 import com.example.access.ui.components.ManagementSecretHandler
 import com.example.access.ui.components.PasswordElevationDialog
+import com.example.access.ui.components.TabGuideDialog
+import com.example.access.ui.components.hasSeenTabGuide
+import com.example.access.ui.components.markTabGuideSeen
 import com.example.access.ui.screens.*
 import com.example.access.util.SessionManager
 import kotlinx.coroutines.launch
@@ -45,7 +49,9 @@ fun MainAppNavigation(
     var selectedTab by remember { mutableIntStateOf(0) }
     var sessionKey by remember { mutableIntStateOf(0) }
     var showSecretDialog by remember { mutableStateOf(false) }
+    var visibleGuideTab by remember { mutableStateOf<String?>(null) }
     val activeRole by sessionManager.activeRole.collectAsState()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     val tabs = remember(activeRole) {
@@ -64,6 +70,7 @@ fun MainAppNavigation(
         list
     }
     val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val currentTabTitle = tabs.getOrNull(selectedTab)?.title ?: tabs.firstOrNull()?.title
 
     fun resetToDashboard() {
         sessionKey++
@@ -73,6 +80,13 @@ fun MainAppNavigation(
                 pagerState.scrollToPage(0)
             }
         }
+    }
+
+    fun dismissTabGuide() {
+        visibleGuideTab?.let { guideTab ->
+            markTabGuideSeen(context, guideTab)
+        }
+        visibleGuideTab = null
     }
 
     LaunchedEffect(activeRole, tabs.size) {
@@ -85,6 +99,13 @@ fun MainAppNavigation(
     LaunchedEffect(pagerState.currentPage, tabs.size) {
         if (tabs.isNotEmpty()) {
             selectedTab = pagerState.currentPage.coerceIn(0, tabs.lastIndex)
+        }
+    }
+
+    LaunchedEffect(currentTabTitle, showSecretDialog) {
+        val tabTitle = currentTabTitle ?: return@LaunchedEffect
+        if (!showSecretDialog && visibleGuideTab == null && !hasSeenTabGuide(context, tabTitle)) {
+            visibleGuideTab = tabTitle
         }
     }
 
@@ -165,6 +186,14 @@ fun MainAppNavigation(
             sessionManager = sessionManager,
             onDismiss = { showSecretDialog = false },
             onSessionChanged = { resetToDashboard() }
+        )
+    }
+
+    visibleGuideTab?.let { guideTab ->
+        TabGuideDialog(
+            tabTitle = guideTab,
+            activeRole = activeRole,
+            onDismiss = { dismissTabGuide() }
         )
     }
 }
