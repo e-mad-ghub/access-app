@@ -150,7 +150,7 @@ fun AppOrientationDialog(
                     page += 1
                 }
             }) {
-                Text(if (isLastPage) "Start using EasyPass" else "Next")
+                Text(if (isLastPage) "Start using easyPass" else "Next")
             }
         },
         dismissButton = {
@@ -398,7 +398,7 @@ private fun orientationPages(): List<OrientationPage> {
         OrientationPage(
             icon = Icons.Default.Badge,
             title = "Membership and access in one app",
-            body = "EasyPass combines an organization member database with QR access verification.",
+            body = "easyPass combines an organization member database with QR access verification.",
             bullets = listOf(
                 "Maintain member information and membership status.",
                 "Generate and share member QR passes.",
@@ -412,15 +412,15 @@ private fun orientationPages(): List<OrientationPage> {
             body = "Your organization database is stored in your own Google Drive.",
             bullets = listOf(
                 "You remain in control of the database.",
-                "Connected EasyPass devices use the shared Drive database.",
+                "Connected easyPass devices use the shared Drive database.",
                 "Google sign-in is needed only when creating, restoring, or managing Drive-backed data.",
-                "EasyPass uses minimal local device storage."
+                "easyPass uses minimal local device storage."
             )
         ),
         OrientationPage(
             icon = Icons.Default.VerifiedUser,
             title = "Three roles, clear responsibilities",
-            body = "EasyPass starts in Scanner. Protected roles require their assigned passwords.",
+            body = "easyPass starts in Scanner. Protected roles require their assigned passwords.",
             bullets = listOf(
                 "Scanner verifies QR passes without editing the organization database.",
                 "Manager adds, edits, imports, exports, suspends, and reactivates members.",
@@ -429,7 +429,7 @@ private fun orientationPages(): List<OrientationPage> {
         ),
         OrientationPage(
             icon = Icons.Default.Timeline,
-            title = "Your first EasyPass workflow",
+            title = "Your first easyPass workflow",
             body = "Configure organization -> Add or import members -> Share QR passes -> Scan and verify",
             bullets = listOf(
                 "Switch to Director to configure the organization.",
@@ -461,7 +461,7 @@ private fun tabGuideContent(tabId: String): TabGuideModel {
             purpose = "Verify member QR passes without editing the organization database.",
             detail = "The scanner is read-only. It checks QR codes against the local synced database and does not write scan history to Google Drive.",
             controls = listOf(
-                ControlGuide(Icons.Default.CameraAlt, "Camera frame", "Automatically recognizes an EasyPass QR code."),
+                ControlGuide(Icons.Default.CameraAlt, "Camera frame", "Automatically recognizes an easyPass QR code."),
                 ControlGuide(Icons.Default.CameraAlt, "Allow Camera", "Grants the required Android camera permission."),
                 ControlGuide(Icons.Default.Visibility, "Result card", "Shows member name, scan time, and access result.", readOnly = true),
                 ControlGuide(Icons.Default.QrCodeScanner, "Scan Next", "Closes the current result and accepts another scan."),
@@ -494,7 +494,7 @@ private fun tabGuideContent(tabId: String): TabGuideModel {
                 ControlGuide(Icons.Default.ToggleOff, "Suspend / Reactivate", "Changes whether the pass grants access."),
                 ControlGuide(Icons.Default.Edit, "Edit", "Updates member information."),
                 ControlGuide(Icons.Default.Delete, "Delete", "Permanently removes a member after confirmation."),
-                ControlGuide(Icons.Default.Download, "Export EasyPass backup", "Produces a complete app backup spreadsheet."),
+                ControlGuide(Icons.Default.Download, "Export easyPass backup", "Produces a complete app backup spreadsheet."),
                 ControlGuide(Icons.Default.FileDownload, "Download import template", "Produces a blank supported import file."),
                 ControlGuide(Icons.Default.UploadFile, "Bulk import spreadsheet", "Previews and applies Add or Overwrite imports.")
             )
@@ -517,8 +517,8 @@ private fun tabGuideContent(tabId: String): TabGuideModel {
             )
         )
         else -> TabGuideModel(
-            title = "EasyPass",
-            purpose = "This tab contains EasyPass tools.",
+            title = "easyPass",
+            purpose = "This tab contains easyPass tools.",
             detail = "Use the visible actions on this screen to continue.",
             controls = emptyList()
         )

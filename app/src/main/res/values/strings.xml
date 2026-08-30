@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">EasyPass</string>
+    <string name="app_name">easyPass</string>
     <string name="welcome_message">Membership management, simplified.</string>
 </resources>

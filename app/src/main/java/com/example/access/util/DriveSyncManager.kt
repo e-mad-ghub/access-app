@@ -555,7 +555,7 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 val row = sheet.createRow(i + 1)
                 row.createCell(0).setCellValue(m.memberId); row.createCell(1).setCellValue(m.fullName); row.createCell(2).setCellValue(m.status); row.createCell(3).setCellValue(m.qrCodeHash); row.createCell(4).setCellValue(m.lastUpdated); row.createCell(5).setCellValue(m.phone ?: ""); row.createCell(6).setCellValue(m.email ?: ""); row.createCell(7).setCellValue(m.address ?: ""); row.createCell(8).setCellValue(m.notes ?: "")
             }
-            val file = File(context.cacheDir, "EasyPass_Backup.xlsx")
+            val file = File(context.cacheDir, "easyPass_Backup.xlsx")
             FileOutputStream(file).use { workbook.write(it) }
             return@withContext file
         } catch (e: Exception) { 
@@ -567,10 +567,10 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
     suspend fun exportImportTemplate(): File? = withContext(Dispatchers.IO) {
         try {
             val workbook = XSSFWorkbook()
-            val sheet = workbook.createSheet("EasyPass Import Template")
+            val sheet = workbook.createSheet("easyPass Import Template")
             val header = sheet.createRow(0)
             IMPORT_TEMPLATE_COLUMNS.forEachIndexed { i, title -> header.createCell(i).setCellValue(title) }
-            val file = File(context.cacheDir, "EasyPass_Import_Template.xlsx")
+            val file = File(context.cacheDir, "easyPass_Import_Template.xlsx")
             FileOutputStream(file).use { workbook.write(it) }
             return@withContext file
         } catch (e: Exception) {
@@ -695,12 +695,12 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
 
     companion object {
         fun createAnonymous(context: Context): DriveSyncManager {
-            val drive = Drive.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), null).setApplicationName("EasyPass").build()
+            val drive = Drive.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), null).setApplicationName("easyPass").build()
             return DriveSyncManager(context, drive, isAnonymous = true)
         }
         
         fun createWithCredential(context: Context, credential: GoogleAccountCredential): DriveSyncManager {
-            val drive = Drive.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), credential).setApplicationName("EasyPass").build()
+            val drive = Drive.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), credential).setApplicationName("easyPass").build()
             return DriveSyncManager(context, drive)
         }
     }

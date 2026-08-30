@@ -129,7 +129,7 @@ class SetupWizardActivity : ComponentActivity() {
             }
             
             Spacer(modifier = Modifier.height(20.dp))
-            Text("EASYPASS", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text("easyPass", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
             
             // SECRET GESTURE: Tap "Organization Hub" 5 times
             Text(
@@ -203,7 +203,7 @@ class SetupWizardActivity : ComponentActivity() {
                         Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Affordable, lightweight, and private by design. EasyPass keeps your organization database in your own Google Drive and uses minimal device storage.",
+                            "Affordable, lightweight, and private by design. easyPass keeps your organization database in your own Google Drive and uses minimal device storage.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF006064)
                         )
@@ -413,7 +413,7 @@ class SetupWizardActivity : ComponentActivity() {
         Column {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
             Text("Data Storage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Choose the Google Drive folder where EasyPass will keep your shared organization database. You stay in control of the data.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Choose the Google Drive folder where easyPass will keep your shared organization database. You stay in control of the data.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(Modifier.height(32.dp))
             OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Folder Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), placeholder = { Text("https://drive.google.com/...") })
             Spacer(modifier = Modifier.height(24.dp))
@@ -421,7 +421,7 @@ class SetupWizardActivity : ComponentActivity() {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
                     Icon(Icons.Default.Info, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("EasyPass writes only its organization files in this folder. The shared database stays in your Drive, while the app keeps only the needed local copy on the device.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
+                    Text("easyPass writes only its organization files in this folder. The shared database stays in your Drive, while the app keeps only the needed local copy on the device.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
                 }
             }
             Spacer(modifier = Modifier.height(48.dp))
@@ -462,7 +462,7 @@ class SetupWizardActivity : ComponentActivity() {
             Text(selectedFolderName.uppercase(), fontWeight = FontWeight.Black, color = Color(0xFF00BFA5), fontSize = 20.sp)
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "This Google Drive folder will become the shared source of truth for your organization's members, settings, and Pro status. EasyPass keeps device storage minimal by syncing from this shared file.",
+                "This Google Drive folder will become the shared source of truth for your organization's members, settings, and Pro status. easyPass keeps device storage minimal by syncing from this shared file.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray,
                 textAlign = TextAlign.Center
@@ -482,7 +482,7 @@ class SetupWizardActivity : ComponentActivity() {
                     }
                 }, 
                 modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)
-            ) { Text("Connect to EasyPass", fontWeight = FontWeight.Black) }
+            ) { Text("Connect to easyPass", fontWeight = FontWeight.Black) }
         }
     }
 
@@ -491,7 +491,7 @@ class SetupWizardActivity : ComponentActivity() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.CloudDone, null, modifier = Modifier.size(80.dp), tint = Color(0xFF00BFA5))
             Spacer(modifier = Modifier.height(24.dp))
-            Text("EasyPass Hub Detected", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+            Text("easyPass Hub Detected", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
             Spacer(modifier = Modifier.height(48.dp))
             Button(onClick = { isBusy = true; finalizeRestore(existingConfigFoundId!!) }, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) { Text("Restore This Hub", fontWeight = FontWeight.Black) }
             TextButton(onClick = { currentStep = SetupStep.PASSWORDS; existingConfigFoundId = null }) { Text("Create New Instead", fontWeight = FontWeight.Bold) }

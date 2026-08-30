@@ -87,7 +87,7 @@ fun PaywallDialog(
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(
-                                "EasyPass Pro",
+                                "easyPass Pro",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF101828)
@@ -183,7 +183,7 @@ fun PaywallDialog(
                 }
 
                 Text(
-                    "Payment is handled by Google Play. EasyPass does not store payment details. The subscription unlocks Pro for the current organization, not only this phone.",
+                    "Payment is handled by Google Play. easyPass does not store payment details. The subscription unlocks Pro for the current organization, not only this phone.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF667085),
                     textAlign = TextAlign.Center

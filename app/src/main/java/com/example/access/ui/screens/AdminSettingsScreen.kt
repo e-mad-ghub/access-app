@@ -52,7 +52,7 @@ fun AdminSettingsScreen(
 
         ProfessionalSectionCard(
             title = "Organization",
-            subtitle = "Connect this device to the right EasyPass database.",
+            subtitle = "Connect this device to the right easyPass database.",
             icon = Icons.Default.Business
         ) {
             if (activeRole != SessionManager.ROLE_SCANNER) {
@@ -80,7 +80,7 @@ fun AdminSettingsScreen(
 
         ProfessionalSectionCard(
             title = "App guidance",
-            subtitle = "Replay the EasyPass introduction and the guide for each tab.",
+            subtitle = "Replay the easyPass introduction and the guide for each tab.",
             icon = Icons.Default.RestartAlt
         ) {
             ProfessionalActionRow(
@@ -93,7 +93,7 @@ fun AdminSettingsScreen(
 
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
-                "EasyPass v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                "easyPass v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color(0xFF98A2B3)
             )
@@ -109,7 +109,7 @@ fun AdminSettingsScreen(
             title = { Text("Leave Organization?", fontWeight = FontWeight.SemiBold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("This device will disconnect from the current EasyPass organization. The shared database in Google Drive will not be deleted.")
+                    Text("This device will disconnect from the current easyPass organization. The shared database in Google Drive will not be deleted.")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
                             checked = signOutGoogleOnLeave,
@@ -154,7 +154,7 @@ fun AdminSettingsScreen(
                         val inviteUrl = "https://easyapps-solutions.com/join?key=$encryptedKey"
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, "Join our team on EasyPass. Paste this link into the app and enter PIN: $joinPin\n\nLink: $inviteUrl")
+                            putExtra(Intent.EXTRA_TEXT, "Join our team on easyPass. Paste this link into the app and enter PIN: $joinPin\n\nLink: $inviteUrl")
                         }
                         context.startActivity(Intent.createChooser(intent, "Share Invite"))
                         showInviteDialog = false

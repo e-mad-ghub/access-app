@@ -10,7 +10,7 @@ RELEASE_AAB="$ROOT_DIR/app/build/outputs/bundle/release/app-release.aab"
 
 usage() {
   cat <<EOF
-EasyPass Android helper
+easyPass Android helper
 
 Usage:
   ./scripts/android.sh <command>

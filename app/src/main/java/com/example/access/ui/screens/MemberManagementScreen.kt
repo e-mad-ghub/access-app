@@ -240,12 +240,12 @@ fun MemberManagementScreen(
                     ProfessionalInfoText("Import and export Excel files safely. Customer imports need headers: Name, Phone, Email, Address, Notes.")
                     ProfessionalActionRow(
                         icon = Icons.Default.Download,
-                        title = "Export EasyPass backup",
+                        title = "Export easyPass backup",
                         body = "Download a full app backup spreadsheet.",
                         onClick = {
                             scope.launch {
                                 val sync = driveSyncOrNull() ?: return@launch
-                                sync.exportLocalBackup(config.isPro)?.let { shareSpreadsheet(it, "Share EasyPass Backup") }
+                                sync.exportLocalBackup(config.isPro)?.let { shareSpreadsheet(it, "Share easyPass Backup") }
                             }
                         }
                     )
@@ -438,7 +438,7 @@ fun MemberManagementScreen(
             title = { Text("Preview Import", fontWeight = FontWeight.Black) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Choose how EasyPass should apply this spreadsheet before updating your shared database.", style = MaterialTheme.typography.bodySmall)
+                    Text("Choose how easyPass should apply this spreadsheet before updating your shared database.", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = importMode == ImportMode.ADD,

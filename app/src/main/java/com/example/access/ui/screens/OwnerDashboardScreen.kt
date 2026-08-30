@@ -324,7 +324,7 @@ fun OwnerDashboardScreen(
                     }
                 )
                 Text(
-                    "This folder holds the EasyPass organization database. Director changes need Google Drive access so the database can be updated safely.",
+                    "This folder holds the easyPass organization database. Director changes need Google Drive access so the database can be updated safely.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )

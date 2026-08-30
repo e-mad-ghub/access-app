@@ -1,7 +1,5 @@
 package com.example.access.ui.components
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -10,9 +8,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -55,17 +50,6 @@ fun LoadingOverlay(
 
 @Composable
 fun InitialSplashLoader() {
-    val infiniteTransition = rememberInfiniteTransition(label = "Splash")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 0.98f,
-        targetValue = 1.02f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "Pulse"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -78,11 +62,10 @@ fun InitialSplashLoader() {
                 contentDescription = null,
                 modifier = Modifier
                     .size(100.dp)
-                    .scale(scale)
             )
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                "EasyPass",
+                "easyPass",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Black,
                 color = Color(0xFF263238),
