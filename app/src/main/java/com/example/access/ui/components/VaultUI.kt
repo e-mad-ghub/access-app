@@ -158,7 +158,7 @@ fun ScannerBanner(onChangeSession: () -> Unit) {
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
-                    "CHANGE SESSION",
+                    "SWITCH ROLE",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     color = Color.White,
                     fontSize = 11.sp,
@@ -198,7 +198,7 @@ fun ElevatedBanner(role: String, onEndSession: () -> Unit) {
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
-                    "EXIT SESSION",
+                    "RETURN TO SCANNER",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     color = Color.White,
                     fontSize = 11.sp,

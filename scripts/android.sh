@@ -76,6 +76,12 @@ check_release_signing() {
   [[ -f "$ROOT_DIR/keystore/easypass-upload.jks" ]] || fail "keystore/easypass-upload.jks is missing."
 }
 
+check_release_install_ready() {
+  require_adb
+  check_release_signing
+  device_serial >/dev/null
+}
+
 gradle() {
   require_gradle
   "$GRADLEW" "$@"
@@ -169,6 +175,7 @@ case "${1:-}" in
     install_apk "$DEBUG_APK"
     ;;
   reinstall-release)
+    check_release_install_ready
     uninstall_app
     build_release_apk
     install_apk "$RELEASE_APK"

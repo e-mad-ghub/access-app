@@ -237,8 +237,15 @@ class SetupWizardActivity : ComponentActivity() {
             ) {
                 Icon(Icons.Default.CloudUpload, null)
                 Spacer(Modifier.width(12.dp))
-                Text("Sign in & Setup Organization", fontWeight = FontWeight.Black)
+                Text("Create or Restore Organization", fontWeight = FontWeight.Black)
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                "Create or restore an organization database using your Google Drive.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
             
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -249,8 +256,15 @@ class SetupWizardActivity : ComponentActivity() {
             ) {
                 Icon(Icons.Default.AddLink, null)
                 Spacer(Modifier.width(12.dp))
-                Text("Join Organization", fontWeight = FontWeight.Bold)
+                Text("Join Existing Organization", fontWeight = FontWeight.Bold)
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                "Connect this device using an invitation from an existing organization.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
         }
 
         if (showManualJoin) {

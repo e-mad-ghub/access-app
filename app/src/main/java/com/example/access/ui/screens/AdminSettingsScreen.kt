@@ -34,7 +34,8 @@ import com.example.access.util.SessionManager
 fun AdminSettingsScreen(
     config: Config,
     activeRole: String,
-    onLeaveOrganization: (Boolean) -> Unit
+    onLeaveOrganization: (Boolean) -> Unit,
+    onReplayGuides: () -> Unit
 ) {
     val context = LocalContext.current
     
@@ -46,7 +47,7 @@ fun AdminSettingsScreen(
     ProfessionalScreen(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp)) {
         ProfessionalPageHeader(
             title = "Settings",
-            subtitle = "Manage this device, organization access, and shared data tools."
+            subtitle = "Manage this device, organization access, and app guidance."
         )
 
         ProfessionalSectionCard(
@@ -74,6 +75,19 @@ fun AdminSettingsScreen(
                 body = "Disconnect this device and return to setup. Drive files stay untouched.",
                 destructive = true,
                 onClick = { showLeaveDialog = true }
+            )
+        }
+
+        ProfessionalSectionCard(
+            title = "App guidance",
+            subtitle = "Replay the EasyPass introduction and the guide for each tab.",
+            icon = Icons.Default.RestartAlt
+        ) {
+            ProfessionalActionRow(
+                icon = Icons.Default.RestartAlt,
+                title = "Show app guides again",
+                body = "Reset the introduction and every tab handbook on this device.",
+                onClick = onReplayGuides
             )
         }
 
