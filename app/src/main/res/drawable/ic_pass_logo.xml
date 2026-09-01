@@ -8,10 +8,6 @@
         android:scaleY="0.75"
         android:translateX="12.5"
         android:translateY="12.5">
-        <!-- Mint Green Brackets: Premium Thickness -->
-        <path
-            android:fillColor="#00BFA5"
-            android:pathData="M20,20 H48 V30 H30 V48 H20 V20 Z M60,20 H88 V48 H78 V30 H60 V20 Z M20,60 H30 V78 H48 V88 H20 V60 Z M78,60 H88 V88 H60 V78 H78 V60 Z" />
         <!-- Mint Green Checkmark -->
         <path
             android:fillColor="#00BFA5"
