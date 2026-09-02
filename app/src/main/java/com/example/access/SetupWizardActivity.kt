@@ -93,7 +93,7 @@ class SetupWizardActivity : ComponentActivity() {
         }
 
         // --- 1. ANONYMOUS STARTUP LOGIC ---
-        // If we have an invite key, go straight to PIN. NO Google Sign-In required.
+        // If we have an invite key, go straight to the invite unlock step. No Google Sign-In required.
         if (encryptedInviteKey != null) {
             currentStep = SetupStep.ENTER_JOIN_PIN
         } else if (googleAccount != null) {
@@ -298,29 +298,71 @@ class SetupWizardActivity : ComponentActivity() {
 
     @Composable
     fun EnterJoinPinStep() {
-        var pin by remember { mutableStateOf("") }
+        var secretInput by remember { mutableStateOf("") }
         var isVerifying by remember { mutableStateOf(false) }
+        val inviteCredentialType = remember(encryptedInviteKey) {
+            encryptedInviteKey?.let(SecurityUtils::getInviteCredentialType)
+                ?: SecurityUtils.InviteCredentialType.PIN
+        }
+        val usesAccessCode = inviteCredentialType == SecurityUtils.InviteCredentialType.ACCESS_CODE
+        val normalizedAccessCode = remember(secretInput) { SecurityUtils.normalizeInviteAccessCode(secretInput) }
+        val normalizedPin = remember(secretInput) { secretInput.filter(Char::isDigit) }
+        val canUnlock = if (usesAccessCode) {
+            SecurityUtils.isValidInviteAccessCode(secretInput)
+        } else {
+            normalizedPin.length == 4
+        }
 
         Column {
             Text("Access Unlock", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Enter the 4-digit PIN provided with your link.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text(
+                if (usesAccessCode) "Enter the invitation access code provided with your link."
+                else "Enter the 4-digit PIN provided with your link.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
             Spacer(modifier = Modifier.height(32.dp))
-            OutlinedTextField(value = pin, onValueChange = { if (it.length <= 4) pin = it }, label = { Text("Join PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
+            OutlinedTextField(
+                value = secretInput,
+                onValueChange = {
+                    secretInput = if (usesAccessCode) {
+                        val sanitized = it.uppercase().filter { char ->
+                            char.isLetterOrDigit() || char == '-' || char.isWhitespace()
+                        }
+                        sanitized.take(19)
+                    } else {
+                        it.filter(Char::isDigit).take(4)
+                    }
+                },
+                label = { Text(if (usesAccessCode) "Invitation access code" else "Join PIN") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = if (usesAccessCode) KeyboardType.Password else KeyboardType.NumberPassword
+                ),
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true
+            )
             Spacer(modifier = Modifier.height(48.dp))
             Button(
                 onClick = {
                     isVerifying = true
                     errorMessage = null
-                    val decryptedId = SecurityUtils.decryptInvite(encryptedInviteKey!!, pin)
+                    val secret = if (usesAccessCode) normalizedAccessCode else normalizedPin
+                    val decryptedId = SecurityUtils.decryptInvite(encryptedInviteKey!!, secret)
                     if (decryptedId != null) {
                         isVerifying = false
                         finalizeRestore(decryptedId)
                     } else {
-                        errorMessage = "Incorrect PIN. The link could not be unlocked."
+                        errorMessage = if (usesAccessCode) {
+                            "Incorrect invitation access code. The link could not be unlocked."
+                        } else {
+                            "Incorrect PIN. The link could not be unlocked."
+                        }
                         isVerifying = false
                     }
                 },
-                enabled = pin.length == 4 && !isVerifying,
+                enabled = canUnlock && !isVerifying,
                 modifier = Modifier.fillMaxWidth().height(60.dp),
                 shape = RoundedCornerShape(20.dp)
             ) {

@@ -135,31 +135,38 @@ fun AdminSettingsScreen(
     }
 
     if (showInviteDialog) {
-        var joinPin by remember { mutableStateOf("") }
+        val joinAccessCode = remember(showInviteDialog) { SecurityUtils.generateInviteAccessCode() }
+        val formattedJoinAccessCode = remember(joinAccessCode) { SecurityUtils.formatInviteAccessCode(joinAccessCode) }
         val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", "") ?: ""
         AlertDialog(
             onDismissRequest = { showInviteDialog = false },
             title = { Text("Secure Staff Invite", fontWeight = FontWeight.Black) },
             text = {
                 Column {
-                    Text("Recipients will need this 4-digit PIN to join.", style = MaterialTheme.typography.bodySmall)
+                    Text("Recipients will need this invitation access code to join.", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(16.dp))
-                    OutlinedTextField(value = joinPin, onValueChange = { if (it.length <= 4) joinPin = it }, label = { Text("4-Digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                    OutlinedTextField(
+                        value = formattedJoinAccessCode,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Invitation access code") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val encryptedKey = SecurityUtils.encryptInvite(configId, joinPin)
+                        val encryptedKey = SecurityUtils.encryptInvite(configId, joinAccessCode)
                         val inviteUrl = "https://easyapps-solutions.com/join?key=$encryptedKey"
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, "Join our team on easyPass. Paste this link into the app and enter PIN: $joinPin\n\nLink: $inviteUrl")
+                            putExtra(Intent.EXTRA_TEXT, "Join our team on easyPass. Paste this link into the app and enter access code: $formattedJoinAccessCode\n\nLink: $inviteUrl")
                         }
                         context.startActivity(Intent.createChooser(intent, "Share Invite"))
                         showInviteDialog = false
-                    },
-                    enabled = joinPin.length == 4
+                    }
                 ) { Text("Share Link") }
             },
             dismissButton = { TextButton(onClick = { showInviteDialog = false }) { Text("Cancel") } }
