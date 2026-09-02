@@ -35,7 +35,10 @@ import com.easyapps.easypass.R
 import com.example.access.ui.components.LoadingOverlay
 import com.example.access.ui.components.secretElevation
 import com.example.access.ui.theme.AccessTheme
+import com.example.access.util.ConfigLoadResult
+import com.example.access.util.DatabaseLoadResult
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.FileDownloadResult
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -310,7 +313,7 @@ class SetupWizardActivity : ComponentActivity() {
                     errorMessage = null
                     val decryptedId = SecurityUtils.decryptInvite(encryptedInviteKey!!, pin)
                     if (decryptedId != null) {
-                        // SUCCESS: PIN is correct. Instantly connect and bypass all searching.
+                        isVerifying = false
                         finalizeRestore(decryptedId)
                     } else {
                         errorMessage = "Incorrect PIN. The link could not be unlocked."
@@ -523,9 +526,47 @@ class SetupWizardActivity : ComponentActivity() {
     }
 
     private fun finalizeRestore(configId: String) {
-        getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit().putString("config_file_id", configId).apply()
-        startActivity(Intent(this, MainActivity::class.java))
-        finish()
+        isBusy = true
+        errorMessage = null
+        lifecycleScope.launch {
+            try {
+                val syncManager = if (googleAccount != null) {
+                    DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
+                } else {
+                    DriveSyncManager.createAnonymous(this@SetupWizardActivity)
+                }
+                when (val configResult = syncManager.downloadConfigResult(configId)) {
+                    is ConfigLoadResult.Success -> {
+                        val databaseId = configResult.config.activeDatabaseId
+                        if (databaseId.isBlank()) {
+                            errorMessage = "Organization database unavailable. Use a current invitation link."
+                        } else {
+                            when (syncManager.downloadAndParseExcelResult(databaseId, configResult.config.isPro)) {
+                                is DatabaseLoadResult.Success -> {
+                                    getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit().putString("config_file_id", configId).apply()
+                                    startActivity(Intent(this@SetupWizardActivity, MainActivity::class.java))
+                                    finish()
+                                }
+                                is DatabaseLoadResult.DownloadFailure,
+                                is DatabaseLoadResult.ParseFailure -> {
+                                    errorMessage = "Organization database unavailable. Try again or use a current invitation link."
+                                }
+                            }
+                        }
+                    }
+                    is ConfigLoadResult.DownloadFailure -> {
+                        errorMessage = mapConfigRestoreError(configResult.error)
+                    }
+                    is ConfigLoadResult.ParseFailure -> {
+                        errorMessage = "Organization connection unavailable. Use a current invitation link."
+                    }
+                }
+            } catch (e: Exception) {
+                errorMessage = "Connection unavailable. Try again."
+            } finally {
+                isBusy = false
+            }
+        }
     }
 
     private fun startNewSetup(folderId: String, adminPass: String, ownerPass: String) {
@@ -535,6 +576,19 @@ class SetupWizardActivity : ComponentActivity() {
                 val configId = syncManager.createInitialFiles(folderId, SecurityUtils.hashPassword(adminPass), SecurityUtils.hashPassword(ownerPass))
                 if (configId != null) finalizeRestore(configId)
             } catch (e: Exception) { errorMessage = "Init failed."; isBusy = false }
+        }
+    }
+
+    private fun mapConfigRestoreError(error: FileDownloadResult): String {
+        return when (error) {
+            is FileDownloadResult.HttpError -> when (error.statusCode) {
+                403 -> "Organization access unavailable. Check Google Drive sharing or use a current invitation link."
+                404, 410 -> "This invitation is no longer valid. Ask an organization Manager or Director for a current invitation link."
+                else -> "Connection unavailable. Try again or use a current invitation link."
+            }
+            is FileDownloadResult.NetworkError,
+            is FileDownloadResult.UnexpectedError,
+            is FileDownloadResult.Success -> "Connection unavailable. Try again or use a current invitation link."
         }
     }
 }

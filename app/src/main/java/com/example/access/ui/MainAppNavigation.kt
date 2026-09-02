@@ -31,6 +31,7 @@ import com.example.access.ui.components.markAppOrientationSeen
 import com.example.access.ui.components.markTabGuideSeen
 import com.example.access.ui.components.resetAppGuides
 import com.example.access.ui.screens.*
+import com.example.access.util.RevokeOrganizationAccessResult
 import com.example.access.util.SessionManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -47,6 +48,7 @@ fun MainAppNavigation(
     onRepairCloud: () -> Unit,
     onConfigUpdated: (Config) -> Unit,
     onLeaveOrganization: (Boolean) -> Unit,
+    onRevokeAllUsersPermission: (RevokeOrganizationAccessResult) -> Unit,
     scannerViewModel: MainScannerViewModel,
     billingViewModel: BillingViewModel,
     configFileId: String
@@ -193,6 +195,7 @@ fun MainAppNavigation(
                     onRepairCloud = onRepairCloud,
                     onConfigUpdated = onConfigUpdated,
                     onLeaveOrganization = onLeaveOrganization,
+                    onRevokeAllUsersPermission = onRevokeAllUsersPermission,
                     scannerViewModel = scannerViewModel,
                     billingViewModel = billingViewModel,
                     configFileId = configFileId,
@@ -240,6 +243,7 @@ private fun TabPageContent(
     onRepairCloud: () -> Unit,
     onConfigUpdated: (Config) -> Unit,
     onLeaveOrganization: (Boolean) -> Unit,
+    onRevokeAllUsersPermission: (RevokeOrganizationAccessResult) -> Unit,
     scannerViewModel: MainScannerViewModel,
     billingViewModel: BillingViewModel,
     configFileId: String,
@@ -286,7 +290,8 @@ private fun TabPageContent(
                 config = currentConfig,
                 billingViewModel = billingViewModel,
                 configFileId = configFileId,
-                onConfigUpdated = onConfigUpdated
+                onConfigUpdated = onConfigUpdated,
+                onRevokeAllUsersPermission = onRevokeAllUsersPermission
             )
         }
     }

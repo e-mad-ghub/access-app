@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Navigation
@@ -513,7 +514,8 @@ private fun tabGuideContent(tabId: String): TabGuideModel {
                 ControlGuide(Icons.Default.Lock, "Change Manager password", "Replaces Manager access credentials after confirmation."),
                 ControlGuide(Icons.Default.Lock, "Change Director password", "Replaces Director credentials after confirmation."),
                 ControlGuide(Icons.Default.Folder, "Current database folder", "Shows Google Drive folder information.", readOnly = true),
-                ControlGuide(Icons.Default.CloudSync, "Relocate database folder", "Verifies and moves the database to another permitted Drive folder.")
+                ControlGuide(Icons.Default.CloudSync, "Relocate database folder", "Verifies and moves the database to another permitted Drive folder."),
+                ControlGuide(Icons.Default.LockReset, "Revoke all Users Permission", "Creates a fresh organization connection and invitation link. Other devices must reconnect. Previous config and database files are permanently deleted.")
             )
         )
         else -> TabGuideModel(

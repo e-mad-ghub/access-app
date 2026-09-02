@@ -10,6 +10,7 @@ import com.google.api.client.http.FileContent
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
+import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,6 +21,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
@@ -43,6 +45,43 @@ data class ImportResult(
         get() = limitExceededCount > 0
 }
 
+sealed interface FileDownloadResult {
+    data class Success(val bytes: ByteArray) : FileDownloadResult
+    data class HttpError(val statusCode: Int) : FileDownloadResult
+    data class NetworkError(val message: String? = null) : FileDownloadResult
+    data class UnexpectedError(val message: String? = null) : FileDownloadResult
+}
+
+sealed interface ConfigLoadResult {
+    data class Success(val config: Config) : ConfigLoadResult
+    data class DownloadFailure(val error: FileDownloadResult) : ConfigLoadResult
+    data class ParseFailure(val message: String? = null) : ConfigLoadResult
+}
+
+sealed interface DatabaseLoadResult {
+    data class Success(val result: ImportResult) : DatabaseLoadResult
+    data class DownloadFailure(val error: FileDownloadResult) : DatabaseLoadResult
+    data class ParseFailure(val message: String? = null) : DatabaseLoadResult
+}
+
+sealed interface RevokeOrganizationAccessResult {
+    data class Success(
+        val newConfigId: String,
+        val newConfig: Config,
+        val deletedConfigId: String,
+        val deletedDatabaseId: String
+    ) : RevokeOrganizationAccessResult
+
+    data class CleanupPending(
+        val newConfigId: String,
+        val newConfig: Config,
+        val oldConfigId: String,
+        val oldDatabaseId: String
+    ) : RevokeOrganizationAccessResult
+
+    data class Failure(val message: String) : RevokeOrganizationAccessResult
+}
+
 
 
 class DriveSyncManager(
@@ -60,11 +99,22 @@ class DriveSyncManager(
      * key and every call fails with 403. For files shared as "Anyone with the link"
      * we can instead use the public direct-download endpoint over plain HTTP.
      */
-    private fun downloadFileBytes(fileId: String): ByteArray? {
+    private fun downloadFileBytes(fileId: String): FileDownloadResult {
         if (!isAnonymous) {
-            val outputStream = ByteArrayOutputStream()
-            drive.files().get(fileId).executeMediaAndDownloadTo(outputStream)
-            return outputStream.toByteArray()
+            return try {
+                val outputStream = ByteArrayOutputStream()
+                drive.files().get(fileId).setSupportsAllDrives(true).executeMediaAndDownloadTo(outputStream)
+                FileDownloadResult.Success(outputStream.toByteArray())
+            } catch (e: GoogleJsonResponseException) {
+                Log.e("DriveSync", "Authenticated download failed for $fileId with ${e.statusCode}", e)
+                FileDownloadResult.HttpError(e.statusCode)
+            } catch (e: IOException) {
+                Log.e("DriveSync", "Authenticated download network failure for $fileId", e)
+                FileDownloadResult.NetworkError(e.message)
+            } catch (e: Exception) {
+                Log.e("DriveSync", "Authenticated download unexpected failure for $fileId", e)
+                FileDownloadResult.UnexpectedError(e.message)
+            }
         }
         return try {
             val url = URL("https://drive.google.com/uc?export=download&id=$fileId")
@@ -74,14 +124,21 @@ class DriveSyncManager(
                 readTimeout = 30_000
             }
             try {
-                if (connection.responseCode !in 200..299) return null
-                connection.inputStream.use { it.readBytes() }
+                val responseCode = connection.responseCode
+                if (responseCode !in 200..299) {
+                    FileDownloadResult.HttpError(responseCode)
+                } else {
+                    FileDownloadResult.Success(connection.inputStream.use { it.readBytes() })
+                }
             } finally {
                 connection.disconnect()
             }
+        } catch (e: IOException) {
+            Log.e("DriveSync", "Anonymous download network failure for $fileId", e)
+            FileDownloadResult.NetworkError(e.message)
         } catch (e: Exception) {
             Log.e("DriveSync", "Anonymous download failed for $fileId", e)
-            null
+            FileDownloadResult.UnexpectedError(e.message)
         }
     }
 
@@ -362,13 +419,29 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun downloadConfig(configId: String): Config? = withContext(Dispatchers.IO) {
+    suspend fun downloadConfigResult(configId: String): ConfigLoadResult = withContext(Dispatchers.IO) {
         try {
-            val bytes = downloadFileBytes(configId) ?: return@withContext null
-            return@withContext gson.fromJson(String(bytes), Config::class.java)
+            when (val bytes = downloadFileBytes(configId)) {
+                is FileDownloadResult.Success -> {
+                    try {
+                        ConfigLoadResult.Success(gson.fromJson(String(bytes.bytes), Config::class.java))
+                    } catch (e: Exception) {
+                        Log.e("DriveSync", "Config parse failed for $configId", e)
+                        ConfigLoadResult.ParseFailure(e.message)
+                    }
+                }
+                else -> ConfigLoadResult.DownloadFailure(bytes)
+            }
         } catch (e: Exception) { 
-            Log.e("DriveSync", "downloadConfig failed for $configId", e)
-            null 
+            Log.e("DriveSync", "downloadConfigResult failed for $configId", e)
+            ConfigLoadResult.ParseFailure(e.message)
+        }
+    }
+
+    suspend fun downloadConfig(configId: String): Config? {
+        return when (val result = downloadConfigResult(configId)) {
+            is ConfigLoadResult.Success -> result.config
+            else -> null
         }
     }
 
@@ -472,19 +545,35 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun downloadAndParseExcel(fileId: String, isPro: Boolean = true): ImportResult? = withContext(Dispatchers.IO) {
+    suspend fun downloadAndParseExcelResult(fileId: String, isPro: Boolean = true): DatabaseLoadResult = withContext(Dispatchers.IO) {
         try {
-            val bytes = downloadFileBytes(fileId) ?: return@withContext null
-            val result = applyFreeLimit(parseMembersWorkbook(ByteArrayInputStream(bytes)), isPro)
-            setFreeLimitTrimmed(!isPro && result.hasFreeLimitWarning)
+            when (val bytes = downloadFileBytes(fileId)) {
+                is FileDownloadResult.Success -> {
+                    try {
+                        val result = applyFreeLimit(parseMembersWorkbook(ByteArrayInputStream(bytes.bytes)), isPro)
+                        setFreeLimitTrimmed(!isPro && result.hasFreeLimitWarning)
 
-            // Cloud Excel is authoritative. A transaction removes members no
-            // longer present, preventing revoked/deleted badges from staying valid.
-            db.memberDao().replaceAllMembers(result.members)
-            result
+                        // Cloud Excel is authoritative. A transaction removes members no
+                        // longer present, preventing revoked/deleted badges from staying valid.
+                        db.memberDao().replaceAllMembers(result.members)
+                        DatabaseLoadResult.Success(result)
+                    } catch (e: Exception) {
+                        Log.e("DriveSync", "Excel parse failed for $fileId", e)
+                        DatabaseLoadResult.ParseFailure(e.message)
+                    }
+                }
+                else -> DatabaseLoadResult.DownloadFailure(bytes)
+            }
         } catch (e: Exception) {
-            Log.e("DriveSync", "downloadAndParseExcel failed", e)
-            null
+            Log.e("DriveSync", "downloadAndParseExcelResult failed", e)
+            DatabaseLoadResult.ParseFailure(e.message)
+        }
+    }
+
+    suspend fun downloadAndParseExcel(fileId: String, isPro: Boolean = true): ImportResult? {
+        return when (val result = downloadAndParseExcelResult(fileId, isPro)) {
+            is DatabaseLoadResult.Success -> result.result
+            else -> null
         }
     }
 
@@ -691,6 +780,152 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
             Log.e("DriveSync", "uploadLogo failed for folder $folderId", e)
             null 
         }
+    }
+
+    suspend fun validateRevocationCapabilities(configId: String, databaseId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val configParentId = getParentId(configId) ?: return@withContext false
+            val folder = drive.files().get(configParentId)
+                .setFields("capabilities")
+                .setSupportsAllDrives(true)
+                .execute()
+            val configFile = drive.files().get(configId)
+                .setFields("capabilities")
+                .setSupportsAllDrives(true)
+                .execute()
+            val dbFile = drive.files().get(databaseId)
+                .setFields("capabilities")
+                .setSupportsAllDrives(true)
+                .execute()
+            (folder.capabilities?.canAddChildren == true) &&
+                (configFile.capabilities?.canDelete == true) &&
+                (dbFile.capabilities?.canDelete == true)
+        } catch (e: Exception) {
+            Log.e("DriveSync", "validateRevocationCapabilities failed", e)
+            false
+        }
+    }
+
+    suspend fun permanentlyDeleteFile(fileId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            drive.files().delete(fileId).setSupportsAllDrives(true).execute()
+            true
+        } catch (e: GoogleJsonResponseException) {
+            if (e.statusCode == 404 || e.statusCode == 410) {
+                true
+            } else {
+                Log.e("DriveSync", "permanentlyDeleteFile failed for $fileId with ${e.statusCode}", e)
+                false
+            }
+        } catch (e: Exception) {
+            Log.e("DriveSync", "permanentlyDeleteFile failed for $fileId", e)
+            false
+        }
+    }
+
+    suspend fun revokeAllUsersPermission(
+        oldConfigId: String,
+        currentConfig: Config,
+        newManagerHash: String,
+        newDirectorHash: String
+    ): RevokeOrganizationAccessResult = withContext(Dispatchers.IO) {
+        val oldDatabaseId = currentConfig.activeDatabaseId
+        if (oldDatabaseId.isBlank()) {
+            return@withContext RevokeOrganizationAccessResult.Failure("Current organization database is missing.")
+        }
+
+        if (!validateRevocationCapabilities(oldConfigId, oldDatabaseId)) {
+            return@withContext RevokeOrganizationAccessResult.Failure("Google Drive permissions are not sufficient to replace and delete the current organization files.")
+        }
+
+        val parentId = getParentId(oldConfigId)
+            ?: return@withContext RevokeOrganizationAccessResult.Failure("Could not locate the current easyPass storage folder.")
+
+        var newConfigId: String? = null
+        var newDatabaseId: String? = null
+
+        try {
+            val copiedDatabase = drive.files().copy(
+                oldDatabaseId,
+                com.google.api.services.drive.model.File().apply {
+                    name = "database.xlsx"
+                    parents = listOf(parentId)
+                }
+            )
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute()
+            newDatabaseId = copiedDatabase.id
+
+            val updatedConfig = currentConfig.copy(
+                activeDatabaseId = copiedDatabase.id,
+                roleHashes = currentConfig.roleHashes.toMutableMap().apply {
+                    this["admin"] = newManagerHash
+                    this["owner"] = newDirectorHash
+                },
+                lastUpdated = Instant.now().toString()
+            )
+
+            val configFile = File(context.cacheDir, "revoked_config.json").apply {
+                writeText(gson.toJson(updatedConfig))
+            }
+
+            val uploadedConfig = drive.files().create(
+                com.google.api.services.drive.model.File().apply {
+                    name = "config.json"
+                    parents = listOf(parentId)
+                },
+                FileContent("application/json", configFile)
+            )
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute()
+            newConfigId = uploadedConfig.id
+
+            val verifiedConfig = when (val configResult = downloadConfigResult(uploadedConfig.id)) {
+                is ConfigLoadResult.Success -> configResult.config
+                else -> {
+                    cleanupReplacementArtifacts(newConfigId, newDatabaseId)
+                    return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not verify the replacement organization connection.")
+                }
+            }
+
+            when (downloadFileBytes(verifiedConfig.activeDatabaseId)) {
+                is FileDownloadResult.Success -> Unit
+                else -> {
+                    cleanupReplacementArtifacts(newConfigId, newDatabaseId)
+                    return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not verify the replacement organization database.")
+                }
+            }
+
+            val configDeleted = permanentlyDeleteFile(oldConfigId)
+            val databaseDeleted = permanentlyDeleteFile(oldDatabaseId)
+
+            if (configDeleted && databaseDeleted) {
+                RevokeOrganizationAccessResult.Success(
+                    newConfigId = uploadedConfig.id,
+                    newConfig = verifiedConfig,
+                    deletedConfigId = oldConfigId,
+                    deletedDatabaseId = oldDatabaseId
+                )
+            } else {
+                RevokeOrganizationAccessResult.CleanupPending(
+                    newConfigId = uploadedConfig.id,
+                    newConfig = verifiedConfig,
+                    oldConfigId = oldConfigId,
+                    oldDatabaseId = oldDatabaseId
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("DriveSync", "revokeAllUsersPermission failed", e)
+            cleanupReplacementArtifacts(newConfigId, newDatabaseId)
+            RevokeOrganizationAccessResult.Failure("easyPass could not complete the organization permission reset.")
+        }
+    }
+
+    private suspend fun cleanupReplacementArtifacts(newConfigId: String?, newDatabaseId: String?) {
+        newConfigId?.let { permanentlyDeleteFile(it) }
+        newDatabaseId?.let { permanentlyDeleteFile(it) }
     }
 
     companion object {

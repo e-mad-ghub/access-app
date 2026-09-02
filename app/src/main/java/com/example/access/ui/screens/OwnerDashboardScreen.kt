@@ -50,6 +50,7 @@ import com.example.access.ui.components.ProfessionalScreen
 import com.example.access.ui.components.ProfessionalSectionCard
 import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.RevokeOrganizationAccessResult
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
@@ -71,7 +72,8 @@ fun OwnerDashboardScreen(
     config: Config,
     billingViewModel: BillingViewModel,
     configFileId: String,
-    onConfigUpdated: (Config) -> Unit
+    onConfigUpdated: (Config) -> Unit,
+    onRevokeAllUsersPermission: (RevokeOrganizationAccessResult) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -89,6 +91,7 @@ fun OwnerDashboardScreen(
     var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
     var showCropDialog by remember { mutableStateOf(false) }
     var showUpgradeDialog by remember { mutableStateOf(false) }
+    var showRevokeDialog by remember { mutableStateOf(false) }
     val productDetails by billingViewModel.productDetails.collectAsState()
     val billingState by billingViewModel.billingState.collectAsState()
 
@@ -351,6 +354,35 @@ fun OwnerDashboardScreen(
                 }
             }
         }
+        OperationCard(
+            title = "Organization access",
+            subtitle = "Replace the active organization connection and require all other devices to reconnect.",
+            icon = Icons.Default.LockReset
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Use this only when you need to block all currently connected easyPass devices and issue a fresh invitation link. This device stays connected after the replacement finishes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+                Button(
+                    onClick = {
+                        if (syncManager == null) {
+                            Toast.makeText(context, "Google sign-in is required for Director storage actions.", Toast.LENGTH_LONG).show()
+                        } else {
+                            showRevokeDialog = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB42318)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Default.LockReset, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Revoke all Users Permission", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(84.dp))
     }
     if (showUpgradeDialog) {
@@ -394,6 +426,28 @@ fun OwnerDashboardScreen(
                     passwordChangeRole = null
                     isBusy = false
                     Toast.makeText(context, "$roleLabel password updated", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+    if (showRevokeDialog) {
+        RevokeUsersPermissionDialog(
+            config = config,
+            onDismiss = { showRevokeDialog = false },
+            onConfirm = { currentDirectorPassword, newManagerPassword, newDirectorPassword ->
+                val managerHash = SecurityUtils.hashPassword(newManagerPassword)
+                val directorHash = SecurityUtils.hashPassword(newDirectorPassword)
+                isBusy = true
+                scope.launch {
+                    val result = syncManager?.revokeAllUsersPermission(
+                        oldConfigId = configFileId,
+                        currentConfig = config,
+                        newManagerHash = managerHash,
+                        newDirectorHash = directorHash
+                    ) ?: RevokeOrganizationAccessResult.Failure("Google sign-in is required for Director storage actions.")
+                    isBusy = false
+                    showRevokeDialog = false
+                    onRevokeAllUsersPermission(result)
                 }
             }
         )
@@ -476,6 +530,167 @@ private fun ChangeRolePasswordDialog(
 
 private fun roleDisplayName(role: String): String {
     return if (role == SessionManager.ROLE_ADMIN) "Manager" else "Director"
+}
+
+@Composable
+private fun RevokeUsersPermissionDialog(
+    config: Config,
+    onDismiss: () -> Unit,
+    onConfirm: (currentDirectorPassword: String, newManagerPassword: String, newDirectorPassword: String) -> Unit
+) {
+    var currentDirectorPassword by remember { mutableStateOf("") }
+    var newManagerPassword by remember { mutableStateOf("") }
+    var confirmManagerPassword by remember { mutableStateOf("") }
+    var newDirectorPassword by remember { mutableStateOf("") }
+    var confirmDirectorPassword by remember { mutableStateOf("") }
+    var acknowledged by remember { mutableStateOf(false) }
+
+    val currentPasswordInvalid = currentDirectorPassword.isNotEmpty() &&
+        !SecurityUtils.verifyPassword(currentDirectorPassword, config.roleHashes[SessionManager.ROLE_OWNER])
+    val managerMismatch = confirmManagerPassword.isNotEmpty() && confirmManagerPassword != newManagerPassword
+    val directorMismatch = confirmDirectorPassword.isNotEmpty() && confirmDirectorPassword != newDirectorPassword
+    val passwordsConflict = newManagerPassword.isNotEmpty() &&
+        newDirectorPassword.isNotEmpty() &&
+        newManagerPassword == newDirectorPassword
+    val canConfirm = !currentPasswordInvalid &&
+        currentDirectorPassword.isNotBlank() &&
+        newManagerPassword.isNotBlank() &&
+        newDirectorPassword.isNotBlank() &&
+        confirmManagerPassword == newManagerPassword &&
+        confirmDirectorPassword == newDirectorPassword &&
+        !passwordsConflict &&
+        acknowledged
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(Icons.Default.LockReset, contentDescription = null, tint = Color(0xFFB42318))
+        },
+        title = {
+            Text("Revoke all Users Permission", fontWeight = FontWeight.SemiBold)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "This device remains connected. All other updated easyPass devices will lose their current connection on their next foreground validation and must reconnect with a new invitation link.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Previous config and database files are permanently deleted. Internet is required after easyPass returns to the foreground. Google Drive sharing is still managed separately in Google Drive.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = currentDirectorPassword,
+                    onValueChange = { currentDirectorPassword = it },
+                    label = { Text("Current Director Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    isError = currentPasswordInvalid,
+                    supportingText = {
+                        if (currentPasswordInvalid) {
+                            Text("Current Director password is incorrect.")
+                        }
+                    },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                OutlinedTextField(
+                    value = newManagerPassword,
+                    onValueChange = { newManagerPassword = it },
+                    label = { Text("New Manager Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                OutlinedTextField(
+                    value = confirmManagerPassword,
+                    onValueChange = { confirmManagerPassword = it },
+                    label = { Text("Confirm Manager Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    isError = managerMismatch,
+                    supportingText = {
+                        if (managerMismatch) {
+                            Text("Manager password confirmation does not match.")
+                        }
+                    },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                OutlinedTextField(
+                    value = newDirectorPassword,
+                    onValueChange = { newDirectorPassword = it },
+                    label = { Text("New Director Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                OutlinedTextField(
+                    value = confirmDirectorPassword,
+                    onValueChange = { confirmDirectorPassword = it },
+                    label = { Text("Confirm Director Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    isError = directorMismatch || passwordsConflict,
+                    supportingText = {
+                        when {
+                            directorMismatch -> Text("Director password confirmation does not match.")
+                            passwordsConflict -> Text("Manager and Director passwords must be different.")
+                        }
+                    },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Checkbox(
+                        checked = acknowledged,
+                        onCheckedChange = { acknowledged = it }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "I understand that all other devices will need a new invitation link after this completes.",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(currentDirectorPassword, newManagerPassword, newDirectorPassword)
+                },
+                enabled = canConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB42318)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Revoke access")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

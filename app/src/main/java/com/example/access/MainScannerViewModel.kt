@@ -29,12 +29,21 @@ class MainScannerViewModel(application: Application) : AndroidViewModel(applicat
     private var lastScannedBarcode: String? = null
     private var lastScanElapsedMs: Long = 0L
     private var isProOrganization: Boolean = false
+    private var isConnectionVerified: Boolean = false
 
     fun updateConfig(config: Config) {
         isProOrganization = config.isPro
     }
 
+    fun setConnectionVerified(verified: Boolean) {
+        isConnectionVerified = verified
+        if (!verified) {
+            _activeScanResult.value = null
+        }
+    }
+
     fun processBarcode(barcode: String) {
+        if (!isConnectionVerified) return
         val normalizedBarcode = barcode.trim()
         if (normalizedBarcode.isEmpty()) return
         if (_activeScanResult.value != null) return
