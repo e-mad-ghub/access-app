@@ -617,6 +617,17 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
+    suspend fun getDriveItemName(fileId: String): String = withContext(Dispatchers.IO) {
+        try {
+            val file = drive.files().get(fileId).setFields("name, trashed").setSupportsAllDrives(true).execute()
+            if (file.trashed == true) return@withContext "Deleted"
+            return@withContext file.name ?: "Unnamed"
+        } catch (e: Exception) {
+            Log.e("DriveSync", "getDriveItemName failed for $fileId", e)
+            "Unknown"
+        }
+    }
+
     suspend fun verifyFolderPermissions(folderId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val file = drive.files().get(folderId).setFields("capabilities").execute()

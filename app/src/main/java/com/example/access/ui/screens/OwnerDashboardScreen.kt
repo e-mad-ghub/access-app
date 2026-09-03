@@ -3,6 +3,8 @@ package com.example.access.ui.screens
 import com.example.access.BillingViewModel
 import android.content.Context
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.*
 import android.net.Uri
@@ -69,6 +71,13 @@ import java.io.FileOutputStream
 
 data class ThemePalette(val name: String, val primary: String, val secondary: String)
 
+private data class InvitationSharePayload(
+    val email: String,
+    val role: String,
+    val accessCode: String,
+    val inviteUrl: String
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OwnerDashboardScreen(
@@ -96,6 +105,7 @@ fun OwnerDashboardScreen(
     var showUpgradeDialog by remember { mutableStateOf(false) }
     var showRevokeDialog by remember { mutableStateOf(false) }
     var showInviteDialog by remember { mutableStateOf(false) }
+    var invitationToShare by remember { mutableStateOf<InvitationSharePayload?>(null) }
     var accessEntryToRemove by remember { mutableStateOf<AccessRosterEntry?>(null) }
     var accessCapabilities by remember { mutableStateOf<OrganizationAccessCapabilities?>(null) }
     val productDetails by billingViewModel.productDetails.collectAsState()
@@ -119,9 +129,9 @@ fun OwnerDashboardScreen(
     }
     val signedInEmail = remember(account) { account?.email?.trim()?.lowercase() }
 
-    LaunchedEffect(config.activeDatabaseId, config.accessRoster, config.branding.logoFileId) {
+    LaunchedEffect(config.activeDatabaseId, config.storageFolderId, config.accessRoster, config.branding.logoFileId) {
         syncManager?.let { sync ->
-            activeFolderName = sync.getFolderName(config.activeDatabaseId)
+            activeFolderName = sync.getDriveItemName(config.storageFolderId ?: config.activeDatabaseId)
             accessCapabilities = sync.getOrganizationAccessCapabilities(config, configFileId, signedInEmail)
         }
     }
@@ -329,13 +339,13 @@ fun OwnerDashboardScreen(
                 ProfessionalActionRow(
                     icon = Icons.Default.Folder,
                     title = activeFolderName,
-                    body = "Current shared database folder in Google Drive.",
+                    body = "Private easyPass storage folder in Google Drive.",
                     trailing = {
                         ProfessionalStatusChip("CURRENT", Color(0xFF667085))
                     }
                 )
                 Text(
-                    "This folder holds the easyPass organization database. Only the storage-owning Director can relocate or replace organization storage.",
+                    "easyPass keeps one private storage folder inside the Google Drive location selected for this organization. Only the storage-owning Director can relocate or replace organization storage.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
@@ -427,11 +437,11 @@ fun OwnerDashboardScreen(
                                     IconButton(
                                         onClick = {
                                             shareOrganizationInvitation(
-                                                context = context,
                                                 configFileId = configFileId,
                                                 email = entry.email,
                                                 role = entry.role
-                                            )
+                                            )?.let { invitationToShare = it }
+                                                ?: Toast.makeText(context, "easyPass could not create an invitation.", Toast.LENGTH_LONG).show()
                                         },
                                         enabled = accessCapabilities?.canManageAccess == true
                                     ) {
@@ -571,11 +581,22 @@ fun OwnerDashboardScreen(
                         Toast.makeText(context, "easyPass could not grant access for this Google account.", Toast.LENGTH_LONG).show()
                     } else {
                         onConfigUpdated(updatedConfig)
-                        shareOrganizationInvitation(context, configFileId, email, role)
+                        val invitation = shareOrganizationInvitation(configFileId, email, role)
+                        if (invitation == null) {
+                            Toast.makeText(context, "easyPass could not create an invitation.", Toast.LENGTH_LONG).show()
+                        } else {
+                            invitationToShare = invitation
+                        }
                         showInviteDialog = false
                     }
                 }
             }
+        )
+    }
+    invitationToShare?.let { payload ->
+        InvitationShareDialog(
+            payload = payload,
+            onDismiss = { invitationToShare = null }
         )
     }
     accessEntryToRemove?.let { entry ->
@@ -694,25 +715,127 @@ private fun roleDisplayName(role: String): String {
 
 /** Generates a fresh join credential without changing the recipient's existing Drive access. */
 private fun shareOrganizationInvitation(
-    context: Context,
     configFileId: String,
     email: String,
     role: String
-) {
-    try {
+): InvitationSharePayload? {
+    return try {
         val joinAccessCode = SecurityUtils.generateInviteAccessCode()
         val formattedJoinAccessCode = SecurityUtils.formatInviteAccessCode(joinAccessCode)
         val encryptedKey = SecurityUtils.encryptInvite(configFileId, joinAccessCode, email, role)
         val inviteUrl = "https://easyapps-solutions.com/join?key=$encryptedKey"
-        val inviteText = "Join this easyPass organization with Google account: ${email.trim()}\nRole: ${roleDisplayName(role)}\nInvitation access code: $formattedJoinAccessCode\n\nLink: $inviteUrl"
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, inviteText)
-        }
-        context.startActivity(Intent.createChooser(intent, "Share easyPass invitation"))
+        InvitationSharePayload(
+            email = email.trim(),
+            role = role,
+            accessCode = formattedJoinAccessCode,
+            inviteUrl = inviteUrl
+        )
     } catch (error: Exception) {
-        Toast.makeText(context, "easyPass could not create an invitation.", Toast.LENGTH_LONG).show()
+        null
     }
+}
+
+@Composable
+private fun InvitationShareDialog(
+    payload: InvitationSharePayload,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboard = remember(context) { context.getSystemService(ClipboardManager::class.java) }
+    val shareText = remember(payload) {
+        buildString {
+            appendLine("Join this easyPass organization")
+            appendLine("Google account: ${payload.email}")
+            appendLine("Role: ${roleDisplayName(payload.role)}")
+            appendLine("Invitation access code: ${payload.accessCode}")
+            appendLine("You can enter the code with or without hyphens.")
+            appendLine()
+            append("Link: ${payload.inviteUrl}")
+        }
+    }
+
+    fun copy(label: String, value: String, message: String) {
+        clipboard?.setPrimaryClip(ClipData.newPlainText(label, value))
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Share invitation") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    "Send this link and code to ${payload.email}. The code can be entered with or without hyphens.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = payload.accessCode,
+                    onValueChange = {},
+                    label = { Text("Invitation access code") },
+                    modifier = Modifier.fillMaxWidth(),
+                    readOnly = true,
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                OutlinedTextField(
+                    value = payload.inviteUrl,
+                    onValueChange = {},
+                    label = { Text("Invitation link") },
+                    modifier = Modifier.fillMaxWidth(),
+                    readOnly = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            copy("easyPass invitation code", payload.accessCode, "Invitation code copied.")
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Copy code")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            copy("easyPass invitation link", payload.inviteUrl, "Invitation link copied.")
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Copy link")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Share easyPass invitation"))
+                },
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Share")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @Composable
