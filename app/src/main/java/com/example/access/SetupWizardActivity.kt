@@ -70,13 +70,14 @@ class SetupWizardActivity : ComponentActivity() {
     private var ownerPassConfirm by mutableStateOf("")
 
     private var encryptedInviteKey by mutableStateOf<String?>(null)
+    private var pendingInvitePayload by mutableStateOf<SecurityUtils.InvitePayload?>(null)
 
     private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             try {
                 val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
                 googleAccount = task.getResult(ApiException::class.java)
-                checkDriveForExistingSetup()
+                pendingInvitePayload?.let(::finalizeRestore) ?: checkDriveForExistingSetup()
             } catch (e: ApiException) {
                 errorMessage = "Google login failed (${e.statusCode}: ${CommonStatusCodes.getStatusCodeString(e.statusCode)})."
             }
@@ -92,8 +93,6 @@ class SetupWizardActivity : ComponentActivity() {
             encryptedInviteKey = data.getQueryParameter("key")
         }
 
-        // --- 1. ANONYMOUS STARTUP LOGIC ---
-        // If we have an invite key, go straight to the invite unlock step. No Google Sign-In required.
         if (encryptedInviteKey != null) {
             currentStep = SetupStep.ENTER_JOIN_PIN
         } else if (googleAccount != null) {
@@ -183,6 +182,7 @@ class SetupWizardActivity : ComponentActivity() {
             currentStep = SetupStep.SIGN_IN_OPTION
             errorMessage = null
             encryptedInviteKey = null
+            pendingInvitePayload = null
         }
     }
 
@@ -215,16 +215,11 @@ class SetupWizardActivity : ComponentActivity() {
                         Icon(Icons.Default.Info, null, tint = Color(0xFF00BFA5), modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Google sign-in is only needed to create or manage your organization database in your own Drive.",
+                            "Every device signs in with its approved Google account before easyPass loads the organization.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF006064)
                         )
                     }
-                    Text(
-                        "Members who join with an invitation link can connect without signing in.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
-                    )
                 }
             }
 
@@ -349,10 +344,19 @@ class SetupWizardActivity : ComponentActivity() {
                     isVerifying = true
                     errorMessage = null
                     val secret = if (usesAccessCode) normalizedAccessCode else normalizedPin
-                    val decryptedId = SecurityUtils.decryptInvite(encryptedInviteKey!!, secret)
-                    if (decryptedId != null) {
+                    val invitePayload = SecurityUtils.decryptInvitePayload(encryptedInviteKey!!, secret)
+                    if (invitePayload != null) {
+                        pendingInvitePayload = invitePayload
                         isVerifying = false
-                        finalizeRestore(decryptedId)
+                        if (googleAccount == null) {
+                            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                .requestEmail()
+                                .requestScopes(Scope(DriveScopes.DRIVE))
+                                .build()
+                            signInLauncher.launch(GoogleSignIn.getClient(this@SetupWizardActivity, gso).signInIntent)
+                        } else {
+                            finalizeRestore(invitePayload)
+                        }
                     } else {
                         errorMessage = if (usesAccessCode) {
                             "Incorrect invitation access code. The link could not be unlocked."
@@ -518,11 +522,10 @@ class SetupWizardActivity : ComponentActivity() {
                     isBusy = true
                     lifecycleScope.launch {
                         try {
-                            val syncManager = if (googleAccount != null) DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential()) else DriveSyncManager.createAnonymous(this@SetupWizardActivity)
+                            val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
                             val configId = syncManager.findConfigInFolder(selectedFolderId)
                             if (configId != null) finalizeRestore(configId)
-                            else if (googleAccount != null) startNewSetup(selectedFolderId, adminPass, ownerPass)
-                            else { errorMessage = "Join Failed: No config found and not signed in."; isBusy = false }
+                            else startNewSetup(selectedFolderId, adminPass, ownerPass)
                         } catch (e: Exception) { errorMessage = "Handshake Failed."; isBusy = false }
                     }
                 }, 
@@ -568,24 +571,49 @@ class SetupWizardActivity : ComponentActivity() {
     }
 
     private fun finalizeRestore(configId: String) {
+        finalizeRestore(SecurityUtils.InvitePayload(configId = configId))
+    }
+
+    private fun finalizeRestore(invitePayload: SecurityUtils.InvitePayload) {
         isBusy = true
         errorMessage = null
         lifecycleScope.launch {
             try {
-                val syncManager = if (googleAccount != null) {
-                    DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
-                } else {
-                    DriveSyncManager.createAnonymous(this@SetupWizardActivity)
+                val account = googleAccount
+                if (account?.email.isNullOrBlank()) {
+                    errorMessage = "Sign in with an approved Google account to use this organization."
+                    return@launch
                 }
-                when (val configResult = syncManager.downloadConfigResult(configId)) {
+                val signedInEmail = account!!.email!!.trim().lowercase()
+                val invitedEmail = invitePayload.invitedEmail?.trim()?.lowercase()
+                if (!invitedEmail.isNullOrBlank() && signedInEmail != invitedEmail) {
+                    errorMessage = "This invitation was issued for a different Google account. Sign in using the invited email."
+                    return@launch
+                }
+                val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
+                when (val configResult = syncManager.downloadConfigResult(invitePayload.configId)) {
                     is ConfigLoadResult.Success -> {
-                        val databaseId = configResult.config.activeDatabaseId
+                        val config = configResult.config
+                        if (!config.hasAccessRoster()) {
+                            errorMessage = "This organization must be secured with approved Google emails before it can be used on this app version."
+                            return@launch
+                        }
+                        val rosterEntry = config.activeAccessEntryFor(signedInEmail)
+                        if (rosterEntry == null) {
+                            errorMessage = if (!invitedEmail.isNullOrBlank()) {
+                                "This Google account is not approved for this organization. Ask a Director for access."
+                            } else {
+                                "Organization access has been removed for this Google account. Ask a Director for a new invitation if needed."
+                            }
+                            return@launch
+                        }
+                        val databaseId = config.activeDatabaseId
                         if (databaseId.isBlank()) {
                             errorMessage = "Organization database unavailable. Use a current invitation link."
                         } else {
-                            when (syncManager.downloadAndParseExcelResult(databaseId, configResult.config.isPro)) {
+                            when (syncManager.downloadAndParseExcelResult(databaseId, config.isPro)) {
                                 is DatabaseLoadResult.Success -> {
-                                    getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit().putString("config_file_id", configId).apply()
+                                    getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit().putString("config_file_id", invitePayload.configId).apply()
                                     startActivity(Intent(this@SetupWizardActivity, MainActivity::class.java))
                                     finish()
                                 }
@@ -615,7 +643,13 @@ class SetupWizardActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
-                val configId = syncManager.createInitialFiles(folderId, SecurityUtils.hashPassword(adminPass), SecurityUtils.hashPassword(ownerPass))
+                val ownerEmail = googleAccount?.email?.trim()?.lowercase()
+                if (ownerEmail.isNullOrBlank()) {
+                    errorMessage = "Sign in with Google before creating an organization."
+                    isBusy = false
+                    return@launch
+                }
+                val configId = syncManager.createInitialFiles(folderId, SecurityUtils.hashPassword(adminPass), SecurityUtils.hashPassword(ownerPass), ownerEmail)
                 if (configId != null) finalizeRestore(configId)
             } catch (e: Exception) { errorMessage = "Init failed."; isBusy = false }
         }
@@ -624,8 +658,8 @@ class SetupWizardActivity : ComponentActivity() {
     private fun mapConfigRestoreError(error: FileDownloadResult): String {
         return when (error) {
             is FileDownloadResult.HttpError -> when (error.statusCode) {
-                403 -> "Organization access unavailable. Check Google Drive sharing or use a current invitation link."
-                404, 410 -> "This invitation is no longer valid. Ask an organization Manager or Director for a current invitation link."
+                403 -> "This Google account is not approved for this organization. Ask a Director for access."
+                404, 410 -> "This invitation is no longer valid. Ask an organization Director for a current invitation link."
                 else -> "Connection unavailable. Try again or use a current invitation link."
             }
             is FileDownloadResult.NetworkError,

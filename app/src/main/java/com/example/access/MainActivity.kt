@@ -94,7 +94,6 @@ class MainActivity : ComponentActivity() {
     private var connectionUiState by mutableStateOf<ConnectionUiState>(ConnectionUiState.Validating)
 
     private var configFileId: String? = null
-    private var isSyncingAnonymously = false
     private var wasStopped = false
     private var hasStartedOnce = false
     private var isValidatingConnection = false
@@ -227,34 +226,55 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        val id = configFileId ?: return
-        if (isSyncingAnonymously && GoogleSignIn.getLastSignedInAccount(this) != null) {
-            validateConnection(id)
-        }
     }
 
-    private fun createSyncManager(): DriveSyncManager {
+    private fun createSyncManager(): DriveSyncManager? {
         val account = GoogleSignIn.getLastSignedInAccount(this)
-        val sync = if (account != null) {
+        return if (account != null) {
             val cred = GoogleAccountCredential.usingOAuth2(this, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
             DriveSyncManager.createWithCredential(this, cred)
         } else {
-            DriveSyncManager.createAnonymous(this)
+            null
         }
-        isSyncingAnonymously = account == null
-        return sync
+    }
+
+    private fun signedInEmail(): String? {
+        return GoogleSignIn.getLastSignedInAccount(this)?.email?.trim()?.lowercase()
     }
 
     private fun validateConnection(configId: String) {
         if (isValidatingConnection) return
-        val sync = createSyncManager()
         scannerViewModel.setConnectionVerified(false)
+        sessionManager.setAuthorizedEmail(null)
         connectionUiState = ConnectionUiState.Validating
         syncStatus = SyncStatus.SYNCING
         syncMessage = null
         lifecycleScope.launch {
             isValidatingConnection = true
             try {
+                val accountEmail = signedInEmail()
+                if (accountEmail.isNullOrBlank()) {
+                    syncStatus = SyncStatus.ERROR
+                    connectionUiState = ConnectionUiState.Unavailable(
+                        title = "Connection unavailable",
+                        message = "Sign in with an approved Google account to use this organization.",
+                        allowRetry = false,
+                        allowInvitationLink = true
+                    )
+                    return@launch
+                }
+                val sync = createSyncManager()
+                    ?: run {
+                        syncStatus = SyncStatus.ERROR
+                        connectionUiState = ConnectionUiState.Unavailable(
+                            title = "Connection unavailable",
+                            message = "Sign in with an approved Google account to use this organization.",
+                            allowRetry = false,
+                            allowInvitationLink = true
+                        )
+                        return@launch
+                    }
+
                 if (!completePendingRevocationCleanup(sync)) {
                     connectionUiState = ConnectionUiState.Unavailable(
                         title = "Connection unavailable",
@@ -267,6 +287,23 @@ class MainActivity : ComponentActivity() {
                 when (val configResult = sync.downloadConfigResult(configId)) {
                     is ConfigLoadResult.Success -> {
                         val config = configResult.config
+                        if (!config.hasAccessRoster()) {
+                            syncStatus = SyncStatus.ERROR
+                            connectionUiState = ConnectionUiState.Unavailable(
+                                title = "Organization access setup required",
+                                message = "This organization must be secured with approved Google emails before it can be used on this app version."
+                            )
+                            return@launch
+                        }
+                        if (config.activeAccessEntryFor(accountEmail) == null) {
+                            syncStatus = SyncStatus.ERROR
+                            sessionManager.resetSession()
+                            connectionUiState = ConnectionUiState.Unavailable(
+                                title = "Organization access unavailable",
+                                message = "easyPass cannot access this organization through Google Drive. Check sharing access or use a current invitation link."
+                            )
+                            return@launch
+                        }
                         if (config.activeDatabaseId.isBlank()) {
                             connectionUiState = ConnectionUiState.Unavailable(
                                 title = "Organization database unavailable",
@@ -278,6 +315,7 @@ class MainActivity : ComponentActivity() {
                         currentConfig = config
                         scannerViewModel.updateConfig(config)
                         sessionManager.updateConfig(config)
+                        sessionManager.setAuthorizedEmail(accountEmail)
 
                         when (val databaseResult = sync.downloadAndParseExcelResult(config.activeDatabaseId, config.isPro)) {
                             is DatabaseLoadResult.Success -> {
@@ -294,11 +332,13 @@ class MainActivity : ComponentActivity() {
                                     null
                                 }
                                 syncStatus = SyncStatus.HEALTHY
+                                sessionManager.resetSession()
                                 scannerViewModel.setConnectionVerified(true)
                                 connectionUiState = ConnectionUiState.Connected
                             }
                             is DatabaseLoadResult.DownloadFailure -> {
                                 syncStatus = SyncStatus.ERROR
+                                sessionManager.resetSession()
                                 connectionUiState = mapDownloadFailureToUiState(
                                     error = databaseResult.error,
                                     missingTitle = "Organization database unavailable",
@@ -308,6 +348,7 @@ class MainActivity : ComponentActivity() {
                             }
                             is DatabaseLoadResult.ParseFailure -> {
                                 syncStatus = SyncStatus.ERROR
+                                sessionManager.resetSession()
                                 connectionUiState = ConnectionUiState.Unavailable(
                                     title = "Organization database unavailable",
                                     message = "easyPass could not load the shared organization database. Try again or use a current invitation link if the connection was replaced."
@@ -317,10 +358,11 @@ class MainActivity : ComponentActivity() {
                     }
                     is ConfigLoadResult.DownloadFailure -> {
                         syncStatus = SyncStatus.ERROR
+                        sessionManager.resetSession()
                         val state = mapDownloadFailureToUiState(
                             error = configResult.error,
                             missingTitle = "Organization connection unavailable",
-                            missingMessage = "This device is no longer connected to the organization. Ask an organization Manager or Director for a current invitation link.",
+                            missingMessage = "This device is no longer connected to the organization. Ask an organization Director for a current invitation link.",
                             treatMissingAsRemoved = true
                         )
                         if (state is ConnectionUiState.ConnectionRemoved) {
@@ -330,6 +372,7 @@ class MainActivity : ComponentActivity() {
                     }
                     is ConfigLoadResult.ParseFailure -> {
                         syncStatus = SyncStatus.ERROR
+                        sessionManager.resetSession()
                         connectionUiState = ConnectionUiState.Unavailable(
                             title = "Organization connection unavailable",
                             message = "easyPass could not verify your organization connection. Check your internet connection and try again."
@@ -339,6 +382,7 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.e("MainActivity", "Failed to load config", e)
                 syncStatus = SyncStatus.ERROR
+                sessionManager.resetSession()
                 connectionUiState = ConnectionUiState.Unavailable(
                     title = "Connection unavailable",
                     message = "easyPass could not verify your organization connection. Check your internet connection and try again."
@@ -382,6 +426,7 @@ class MainActivity : ComponentActivity() {
                 currentConfig = result.newConfig
                 scannerViewModel.updateConfig(result.newConfig)
                 sessionManager.updateConfig(result.newConfig)
+                sessionManager.setAuthorizedEmail(signedInEmail())
                 sessionManager.resetSession()
                 validateConnection(result.newConfigId)
                 Toast.makeText(this, "Organization access revoked. Other devices now need a new invitation link.", Toast.LENGTH_LONG).show()
@@ -398,6 +443,7 @@ class MainActivity : ComponentActivity() {
                 currentConfig = result.newConfig
                 scannerViewModel.updateConfig(result.newConfig)
                 sessionManager.updateConfig(result.newConfig)
+                sessionManager.setAuthorizedEmail(signedInEmail())
                 sessionManager.resetSession()
                 connectionUiState = ConnectionUiState.Unavailable(
                     title = "Connection unavailable",
@@ -470,6 +516,7 @@ class MainActivity : ComponentActivity() {
         }
         configFileId = null
         sessionManager.resetSession()
+        sessionManager.setAuthorizedEmail(null)
         scannerViewModel.setConnectionVerified(false)
     }
 
@@ -487,6 +534,7 @@ class MainActivity : ComponentActivity() {
             }
             configFileId = null
             sessionManager.resetSession()
+            sessionManager.setAuthorizedEmail(null)
             startActivity(Intent(this@MainActivity, SetupWizardActivity::class.java))
             finish()
         }
@@ -504,6 +552,7 @@ class MainActivity : ComponentActivity() {
 
             configFileId = null
             sessionManager.resetSession()
+            sessionManager.setAuthorizedEmail(null)
 
             fun openSetup() {
                 startActivity(Intent(this@MainActivity, SetupWizardActivity::class.java))

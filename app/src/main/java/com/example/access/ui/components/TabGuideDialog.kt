@@ -414,7 +414,7 @@ private fun orientationPages(): List<OrientationPage> {
             bullets = listOf(
                 "You remain in control of the database.",
                 "Connected easyPass devices use the shared Drive database.",
-                "Google sign-in is needed only when creating, restoring, or managing Drive-backed data.",
+                "Each device signs in with an approved Google account before easyPass loads the organization.",
                 "easyPass uses minimal local device storage."
             )
         ),
@@ -474,7 +474,6 @@ private fun tabGuideContent(tabId: String): TabGuideModel {
             purpose = "Manage how this device connects to the organization and replay app guidance.",
             detail = "Settings actions affect this device connection. Leaving or switching organizations does not delete the shared Google Drive database.",
             controls = listOf(
-                ControlGuide(Icons.Default.Share, "Invite staff", "Creates a protected invitation for another device. Available to Manager and Director."),
                 ControlGuide(Icons.Default.AddLink, "Switch organization", "Connects the device using another organization's invitation link."),
                 ControlGuide(Icons.Default.Logout, "Leave organization", "Disconnects locally without deleting Drive files."),
                 ControlGuide(Icons.Default.ManageAccounts, "Also sign out of Google", "Removes the selected Google account when leaving."),
@@ -513,9 +512,12 @@ private fun tabGuideContent(tabId: String): TabGuideModel {
                 ControlGuide(Icons.Default.CheckCircle, "Update member fields", "Saves the selected field configuration."),
                 ControlGuide(Icons.Default.Lock, "Change Manager password", "Replaces Manager access credentials after confirmation."),
                 ControlGuide(Icons.Default.Lock, "Change Director password", "Replaces Director credentials after confirmation."),
+                ControlGuide(Icons.Default.Share, "Invite staff", "Approves a Google email, grants organization access, and creates a secure invitation."),
+                ControlGuide(Icons.Default.People, "Approved people", "Shows each active organization email and its maximum role.", readOnly = true),
+                ControlGuide(Icons.Default.Delete, "Remove access", "Removes a person's Google Drive access and blocks their device after its next validation."),
                 ControlGuide(Icons.Default.Folder, "Current database folder", "Shows Google Drive folder information.", readOnly = true),
                 ControlGuide(Icons.Default.CloudSync, "Relocate database folder", "Verifies and moves the database to another permitted Drive folder."),
-                ControlGuide(Icons.Default.LockReset, "Revoke all Users Permission", "Creates a fresh organization connection and invitation link. Other devices must reconnect. Previous config and database files are permanently deleted.")
+                ControlGuide(Icons.Default.LockReset, "Revoke all Users Access", "Creates a fresh organization connection and invitation link. Other devices must reconnect. Previous config and database files are permanently deleted.")
             )
         )
         else -> TabGuideModel(

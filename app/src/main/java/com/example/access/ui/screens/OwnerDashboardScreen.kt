@@ -3,6 +3,7 @@ package com.example.access.ui.screens
 import com.example.access.BillingViewModel
 import android.content.Context
 import android.app.Activity
+import android.content.Intent
 import android.graphics.*
 import android.net.Uri
 import android.widget.Toast
@@ -44,12 +45,14 @@ import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
 import com.example.access.data.Config
 import com.example.access.data.FieldConfig
+import com.example.access.data.AccessRosterEntry
 import com.example.access.ui.components.ProfessionalActionRow
 import com.example.access.ui.components.ProfessionalPageHeader
 import com.example.access.ui.components.ProfessionalScreen
 import com.example.access.ui.components.ProfessionalSectionCard
 import com.example.access.ui.components.ProfessionalStatusChip
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.OrganizationAccessCapabilities
 import com.example.access.util.RevokeOrganizationAccessResult
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -92,6 +95,9 @@ fun OwnerDashboardScreen(
     var showCropDialog by remember { mutableStateOf(false) }
     var showUpgradeDialog by remember { mutableStateOf(false) }
     var showRevokeDialog by remember { mutableStateOf(false) }
+    var showInviteDialog by remember { mutableStateOf(false) }
+    var accessEntryToRemove by remember { mutableStateOf<AccessRosterEntry?>(null) }
+    var accessCapabilities by remember { mutableStateOf<OrganizationAccessCapabilities?>(null) }
     val productDetails by billingViewModel.productDetails.collectAsState()
     val billingState by billingViewModel.billingState.collectAsState()
 
@@ -111,10 +117,12 @@ fun OwnerDashboardScreen(
             DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
         }
     }
+    val signedInEmail = remember(account) { account?.email?.trim()?.lowercase() }
 
-    LaunchedEffect(config.activeDatabaseId) {
+    LaunchedEffect(config.activeDatabaseId, config.accessRoster, config.branding.logoFileId) {
         syncManager?.let { sync ->
             activeFolderName = sync.getFolderName(config.activeDatabaseId)
+            accessCapabilities = sync.getOrganizationAccessCapabilities(config, configFileId, signedInEmail)
         }
     }
 
@@ -293,7 +301,7 @@ fun OwnerDashboardScreen(
                     color = Color.Gray
                 )
                 OutlinedButton(
-                    onClick = { passwordChangeRole = SessionManager.ROLE_ADMIN },
+                    onClick = { passwordChangeRole = SessionManager.ROLE_MANAGER },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
                 ) {
@@ -302,7 +310,7 @@ fun OwnerDashboardScreen(
                     Text("Change manager password", fontWeight = FontWeight.SemiBold)
                 }
                 OutlinedButton(
-                    onClick = { passwordChangeRole = SessionManager.ROLE_OWNER },
+                    onClick = { passwordChangeRole = SessionManager.ROLE_DIRECTOR },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
                 ) {
@@ -327,7 +335,7 @@ fun OwnerDashboardScreen(
                     }
                 )
                 Text(
-                    "This folder holds the easyPass organization database. Director changes need Google Drive access so the database can be updated safely.",
+                    "This folder holds the easyPass organization database. Only the storage-owning Director can relocate or replace organization storage.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
@@ -341,17 +349,93 @@ fun OwnerDashboardScreen(
                         val ext = extractFolderIdFromLink(folderLink)
                         if (ext != null) {
                             isBusy = true
-                            scope.launch { if (syncManager?.verifyFolderPermissions(ext) == true) relocate(context, ext) { onConfigUpdated(it); isBusy = false; folderLink = "" } else { isBusy = false; Toast.makeText(context, "Editor required", Toast.LENGTH_LONG).show() } }
+                            scope.launch {
+                                if (accessCapabilities?.canManageAccess == true && syncManager?.verifyFolderPermissions(ext) == true) {
+                                    relocate(context, ext) { onConfigUpdated(it); isBusy = false; folderLink = "" }
+                                } else {
+                                    isBusy = false
+                                    Toast.makeText(context, accessCapabilities?.restrictionMessage ?: "Storage-owner access is required.", Toast.LENGTH_LONG).show()
+                                }
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = config.isPro.not() || folderLink.contains("folders/"),
+                    enabled = if (!config.isPro) true else accessCapabilities?.canManageAccess == true && folderLink.contains("folders/"),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Icon(if (config.isPro) Icons.Default.Folder else Icons.Default.WorkspacePremium, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (config.isPro) "Relocate database folder" else "Upgrade to relocate database folder")
                 }
+            }
+        }
+        OperationCard(
+            title = "Organization access",
+            subtitle = "Approve Google emails, share invitations, and remove organization access.",
+            icon = Icons.Default.ManageAccounts
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Every device signs in with an approved Google account before easyPass loads the organization. Only the storage-owning Director can manage access.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+                val capabilityMessage = accessCapabilities?.restrictionMessage
+                if (!capabilityMessage.isNullOrBlank()) {
+                    Surface(
+                        color = Color(0xFFFFF7ED),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color(0xFFFDBA74))
+                    ) {
+                        Text(
+                            capabilityMessage,
+                            modifier = Modifier.padding(14.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF9A3412)
+                        )
+                    }
+                }
+                Button(
+                    onClick = { showInviteDialog = true },
+                    enabled = accessCapabilities?.canManageAccess == true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Invite staff", fontWeight = FontWeight.SemiBold)
+                }
+                config.accessRoster
+                    .filter { it.isActive }
+                    .sortedBy { it.email.lowercase() }
+                    .forEach { entry ->
+                        ProfessionalActionRow(
+                            icon = when (entry.role) {
+                                SessionManager.ROLE_DIRECTOR -> Icons.Default.VpnKey
+                                SessionManager.ROLE_MANAGER -> Icons.Default.AdminPanelSettings
+                                else -> Icons.Default.QrCodeScanner
+                            },
+                            title = entry.email,
+                            body = if (entry.email == config.storageOwnerEmail) {
+                                "${roleDisplayName(entry.role)} • Storage owner"
+                            } else {
+                                roleDisplayName(entry.role)
+                            },
+                            trailing = {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    ProfessionalStatusChip(roleDisplayName(entry.role).uppercase(), MaterialTheme.colorScheme.primary)
+                                    if (entry.email != config.storageOwnerEmail) {
+                                        TextButton(
+                                            onClick = { accessEntryToRemove = entry },
+                                            enabled = accessCapabilities?.canManageAccess == true
+                                        ) {
+                                            Text("Remove", color = Color(0xFFB42318))
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
             }
         }
         OperationCard(
@@ -379,7 +463,7 @@ fun OwnerDashboardScreen(
                 ) {
                     Icon(Icons.Default.LockReset, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Revoke all Users Permission", fontWeight = FontWeight.SemiBold)
+                    Text("Revoke all Users Access", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -410,17 +494,21 @@ fun OwnerDashboardScreen(
             role = role,
             onDismiss = { passwordChangeRole = null },
             onSave = { newPassword ->
-                val oppositeRole = if (role == SessionManager.ROLE_ADMIN) SessionManager.ROLE_OWNER else SessionManager.ROLE_ADMIN
+                val oppositeRole = if (role == SessionManager.ROLE_MANAGER) SessionManager.ROLE_DIRECTOR else SessionManager.ROLE_MANAGER
                 val roleLabel = roleDisplayName(role)
                 val oppositeLabel = roleDisplayName(oppositeRole)
-                val oppositeHash = config.roleHashes[oppositeRole]
-                if (oppositeHash != null && SecurityUtils.verifyPassword(newPassword, oppositeHash)) {
+                val oppositeHash = config.hashForRole(oppositeRole)
+                if (!oppositeHash.isNullOrBlank() && SecurityUtils.verifyPassword(newPassword, oppositeHash)) {
                     Toast.makeText(context, "$roleLabel password conflicts with existing $oppositeLabel password", Toast.LENGTH_LONG).show()
                     return@ChangeRolePasswordDialog
                 }
                 isBusy = true
-                val newHashes = config.roleHashes.toMutableMap()
-                newHashes[role] = SecurityUtils.hashPassword(newPassword)
+                val newHashes = config.roleHashes.toMutableMap().apply {
+                    when (role) {
+                        SessionManager.ROLE_MANAGER -> put(SessionManager.ROLE_MANAGER, SecurityUtils.hashPassword(newPassword))
+                        SessionManager.ROLE_DIRECTOR -> put(SessionManager.ROLE_DIRECTOR, SecurityUtils.hashPassword(newPassword))
+                    }
+                }
                 updateConfigOnDrive(context, config.copy(roleHashes = newHashes)) {
                     onConfigUpdated(it)
                     passwordChangeRole = null
@@ -439,15 +527,78 @@ fun OwnerDashboardScreen(
                 val directorHash = SecurityUtils.hashPassword(newDirectorPassword)
                 isBusy = true
                 scope.launch {
-                    val result = syncManager?.revokeAllUsersPermission(
+                    val result = syncManager?.revokeAllUsersAccess(
                         oldConfigId = configFileId,
                         currentConfig = config,
                         newManagerHash = managerHash,
-                        newDirectorHash = directorHash
+                        newDirectorHash = directorHash,
+                        initiatingDirectorEmail = signedInEmail.orEmpty()
                     ) ?: RevokeOrganizationAccessResult.Failure("Google sign-in is required for Director storage actions.")
                     isBusy = false
                     showRevokeDialog = false
                     onRevokeAllUsersPermission(result)
+                }
+            }
+        )
+    }
+    if (showInviteDialog) {
+        InviteOrganizationUserDialog(
+            onDismiss = { showInviteDialog = false },
+            onInvite = { email, role ->
+                val joinAccessCode = SecurityUtils.generateInviteAccessCode()
+                val formattedJoinAccessCode = SecurityUtils.formatInviteAccessCode(joinAccessCode)
+                isBusy = true
+                scope.launch {
+                    val updatedConfig = syncManager?.inviteOrganizationUser(configFileId, config, email, role)
+                    isBusy = false
+                    if (updatedConfig == null) {
+                        Toast.makeText(context, "easyPass could not grant access for this Google account.", Toast.LENGTH_LONG).show()
+                    } else {
+                        onConfigUpdated(updatedConfig)
+                        val encryptedKey = SecurityUtils.encryptInvite(configFileId, joinAccessCode, email, role)
+                        val inviteUrl = "https://easyapps-solutions.com/join?key=$encryptedKey"
+                        val inviteText = "Join this easyPass organization with Google account: ${email.trim()}\nRole: ${roleDisplayName(role)}\nInvitation access code: $formattedJoinAccessCode\n\nLink: $inviteUrl"
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, inviteText)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Share easyPass invitation"))
+                        showInviteDialog = false
+                    }
+                }
+            }
+        )
+    }
+    accessEntryToRemove?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { accessEntryToRemove = null },
+            title = { Text("Remove organization access") },
+            text = {
+                Text("This Google account will lose access to the organization on its next validation: ${entry.email}")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isBusy = true
+                        scope.launch {
+                            val updatedConfig = syncManager?.removeOrganizationUser(configFileId, config, entry.email)
+                            isBusy = false
+                            accessEntryToRemove = null
+                            if (updatedConfig == null) {
+                                Toast.makeText(context, "easyPass could not remove this Google account.", Toast.LENGTH_LONG).show()
+                            } else {
+                                onConfigUpdated(updatedConfig)
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB42318))
+                ) {
+                    Text("Remove access")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { accessEntryToRemove = null }) {
+                    Text("Cancel")
                 }
             }
         )
@@ -471,7 +622,7 @@ private fun ChangeRolePasswordDialog(
         onDismissRequest = onDismiss,
         icon = {
             Icon(
-                if (role == SessionManager.ROLE_ADMIN) Icons.Default.AdminPanelSettings else Icons.Default.VpnKey,
+                if (role == SessionManager.ROLE_MANAGER) Icons.Default.AdminPanelSettings else Icons.Default.VpnKey,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -529,7 +680,70 @@ private fun ChangeRolePasswordDialog(
 }
 
 private fun roleDisplayName(role: String): String {
-    return if (role == SessionManager.ROLE_ADMIN) "Manager" else "Director"
+    return SessionManager.roleDisplayName(role)
+}
+
+@Composable
+private fun InviteOrganizationUserDialog(
+    onDismiss: () -> Unit,
+    onInvite: (email: String, role: String) -> Unit
+) {
+    var email by remember { mutableStateOf("") }
+    var selectedRole by remember { mutableStateOf(SessionManager.ROLE_SCANNER) }
+    val normalizedEmail = email.trim()
+    val isValidEmail = normalizedEmail.matches(Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$"))
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Invite staff") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Enter the exact Google email that should be approved for this organization, then choose its role.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Google email") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedRole == SessionManager.ROLE_SCANNER,
+                        onClick = { selectedRole = SessionManager.ROLE_SCANNER },
+                        label = { Text("Scanner") }
+                    )
+                    FilterChip(
+                        selected = selectedRole == SessionManager.ROLE_MANAGER,
+                        onClick = { selectedRole = SessionManager.ROLE_MANAGER },
+                        label = { Text("Manager") }
+                    )
+                    FilterChip(
+                        selected = selectedRole == SessionManager.ROLE_DIRECTOR,
+                        onClick = { selectedRole = SessionManager.ROLE_DIRECTOR },
+                        label = { Text("Director") }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onInvite(normalizedEmail, selectedRole) },
+                enabled = isValidEmail
+            ) {
+                Text("Grant access")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
@@ -546,7 +760,7 @@ private fun RevokeUsersPermissionDialog(
     var acknowledged by remember { mutableStateOf(false) }
 
     val currentPasswordInvalid = currentDirectorPassword.isNotEmpty() &&
-        !SecurityUtils.verifyPassword(currentDirectorPassword, config.roleHashes[SessionManager.ROLE_OWNER])
+        !SecurityUtils.verifyPassword(currentDirectorPassword, config.hashForRole(SessionManager.ROLE_DIRECTOR))
     val managerMismatch = confirmManagerPassword.isNotEmpty() && confirmManagerPassword != newManagerPassword
     val directorMismatch = confirmDirectorPassword.isNotEmpty() && confirmDirectorPassword != newDirectorPassword
     val passwordsConflict = newManagerPassword.isNotEmpty() &&
@@ -567,7 +781,7 @@ private fun RevokeUsersPermissionDialog(
             Icon(Icons.Default.LockReset, contentDescription = null, tint = Color(0xFFB42318))
         },
         title = {
-            Text("Revoke all Users Permission", fontWeight = FontWeight.SemiBold)
+            Text("Revoke all Users Access", fontWeight = FontWeight.SemiBold)
         },
         text = {
             Column(
@@ -771,7 +985,13 @@ private fun updateConfigOnDrive(context: Context, config: Config, onSuccess: (Co
     val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
     val sync = DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
     val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
-    (context as androidx.activity.ComponentActivity).lifecycleScope.launch { sync.updateConfigOnDrive(configId, config); onSuccess(config) }
+    (context as androidx.activity.ComponentActivity).lifecycleScope.launch {
+        if (sync.updateConfigOnDrive(configId, config)) {
+            onSuccess(config)
+        } else {
+            Toast.makeText(context, "easyPass could not save these organization changes.", Toast.LENGTH_LONG).show()
+        }
+    }
 }
 
 private suspend fun uploadCroppedLogo(context: Context, bitmap: Bitmap, onSuccess: (Config) -> Unit, config: Config) {
@@ -781,9 +1001,9 @@ private suspend fun uploadCroppedLogo(context: Context, bitmap: Bitmap, onSucces
     val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
     val file = File(context.cacheDir, "logo_cropped.png")
     withContext(Dispatchers.IO) { FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
-    val parentId = sync.getParentId(configId) ?: "root"
-    sync.uploadLogo(parentId, file, config.branding.logoFileId)?.let { 
-        val updated = config.copy(branding = config.branding.copy(logoFileId = it)); sync.updateConfigOnDrive(configId, updated)
+    val parentId = config.storageFolderId ?: sync.getParentId(configId) ?: "root"
+    sync.uploadLogo(parentId, file, config.branding.logoFileId)?.let {
+        val updated = sync.applyRosterToLogo(configId, config, it) ?: return
         withContext(Dispatchers.Main) { onSuccess(updated) }
     }
 }

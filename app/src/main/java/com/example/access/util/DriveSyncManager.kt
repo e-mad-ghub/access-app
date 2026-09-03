@@ -3,6 +3,7 @@ package com.example.access.util
 import android.content.Context
 import android.util.Log
 import com.example.access.data.AppDatabase
+import com.example.access.data.AccessRosterEntry
 import com.example.access.data.Config
 import com.example.access.data.Member
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
@@ -11,6 +12,7 @@ import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.client.googleapis.json.GoogleJsonResponseException
+import com.google.api.services.drive.model.Permission
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,8 +24,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.*
@@ -82,62 +82,39 @@ sealed interface RevokeOrganizationAccessResult {
     data class Failure(val message: String) : RevokeOrganizationAccessResult
 }
 
+data class OrganizationAccessCapabilities(
+    val canManageAccess: Boolean,
+    val restrictionMessage: String? = null
+)
 
+private data class PermissionMutation(
+    val fileId: String,
+    val permissionId: String,
+    val previousRole: String?,
+    val created: Boolean
+)
 
 class DriveSyncManager(
     private val context: Context,
-    val drive: Drive,
-    private val isAnonymous: Boolean = false
+    val drive: Drive
 ) {
 
     private val db = AppDatabase.getDatabase(context)
     private val gson = Gson()
 
-    /**
-     * Downloads raw bytes of a file. When the manager was created anonymously
-     * (invite-link join, no Google sign-in), the Drive API has no credentials/API
-     * key and every call fails with 403. For files shared as "Anyone with the link"
-     * we can instead use the public direct-download endpoint over plain HTTP.
-     */
     private fun downloadFileBytes(fileId: String): FileDownloadResult {
-        if (!isAnonymous) {
-            return try {
-                val outputStream = ByteArrayOutputStream()
-                drive.files().get(fileId).setSupportsAllDrives(true).executeMediaAndDownloadTo(outputStream)
-                FileDownloadResult.Success(outputStream.toByteArray())
-            } catch (e: GoogleJsonResponseException) {
-                Log.e("DriveSync", "Authenticated download failed for $fileId with ${e.statusCode}", e)
-                FileDownloadResult.HttpError(e.statusCode)
-            } catch (e: IOException) {
-                Log.e("DriveSync", "Authenticated download network failure for $fileId", e)
-                FileDownloadResult.NetworkError(e.message)
-            } catch (e: Exception) {
-                Log.e("DriveSync", "Authenticated download unexpected failure for $fileId", e)
-                FileDownloadResult.UnexpectedError(e.message)
-            }
-        }
         return try {
-            val url = URL("https://drive.google.com/uc?export=download&id=$fileId")
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                connectTimeout = 15_000
-                readTimeout = 30_000
-            }
-            try {
-                val responseCode = connection.responseCode
-                if (responseCode !in 200..299) {
-                    FileDownloadResult.HttpError(responseCode)
-                } else {
-                    FileDownloadResult.Success(connection.inputStream.use { it.readBytes() })
-                }
-            } finally {
-                connection.disconnect()
-            }
+            val outputStream = ByteArrayOutputStream()
+            drive.files().get(fileId).setSupportsAllDrives(true).executeMediaAndDownloadTo(outputStream)
+            FileDownloadResult.Success(outputStream.toByteArray())
+        } catch (e: GoogleJsonResponseException) {
+            Log.e("DriveSync", "Authenticated download failed for $fileId with ${e.statusCode}", e)
+            FileDownloadResult.HttpError(e.statusCode)
         } catch (e: IOException) {
-            Log.e("DriveSync", "Anonymous download network failure for $fileId", e)
+            Log.e("DriveSync", "Authenticated download network failure for $fileId", e)
             FileDownloadResult.NetworkError(e.message)
         } catch (e: Exception) {
-            Log.e("DriveSync", "Anonymous download failed for $fileId", e)
+            Log.e("DriveSync", "Authenticated download unexpected failure for $fileId", e)
             FileDownloadResult.UnexpectedError(e.message)
         }
     }
@@ -145,6 +122,297 @@ class DriveSyncManager(
     private val EXCEL_COLUMNS = listOf("MemberID", "FullName", "Status", "QRCodeHash", "LastUpdated", "Phone", "Email", "Address", "Notes")
     private val IMPORT_TEMPLATE_COLUMNS = listOf("Name", "Phone", "Email", "Address", "Notes")
     private val CONFIG_FOLDER_NAME = "EasyPass-configs"
+
+    private fun normalizeEmail(email: String?): String =
+        email.orEmpty().trim().lowercase(Locale.US)
+
+    private fun canonicalRole(role: String?): String = SessionManager.canonicalRole(role)
+
+    private fun readerOrWriterForRole(role: String, writable: Boolean): String {
+        if (!writable) return "reader"
+        return when (canonicalRole(role)) {
+            SessionManager.ROLE_MANAGER,
+            SessionManager.ROLE_DIRECTOR -> "writer"
+            else -> "reader"
+        }
+    }
+
+    private fun canonicalRoleHashes(
+        roleHashes: Map<String, String>,
+        managerHashOverride: String? = null,
+        directorHashOverride: String? = null
+    ): Map<String, String> {
+        val managerHash = managerHashOverride
+            ?: roleHashes[SessionManager.ROLE_MANAGER]
+            ?: roleHashes[SessionManager.LEGACY_ROLE_ADMIN]
+        val directorHash = directorHashOverride
+            ?: roleHashes[SessionManager.ROLE_DIRECTOR]
+            ?: roleHashes[SessionManager.LEGACY_ROLE_OWNER]
+
+        return buildMap {
+            managerHash?.let { put(SessionManager.ROLE_MANAGER, it) }
+            directorHash?.let { put(SessionManager.ROLE_DIRECTOR, it) }
+        }
+    }
+
+    private suspend fun createFolder(parentId: String, name: String): String? {
+        return try {
+            val folder = com.google.api.services.drive.model.File().apply {
+                this.name = name
+                mimeType = "application/vnd.google-apps.folder"
+                parents = listOf(parentId)
+            }
+            drive.files().create(folder)
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute()
+                .id
+        } catch (e: Exception) {
+            Log.e("DriveSync", "createFolder failed for parent $parentId / $name", e)
+            null
+        }
+    }
+
+    private suspend fun renameFile(fileId: String, newName: String): Boolean {
+        return try {
+            drive.files().update(
+                fileId,
+                com.google.api.services.drive.model.File().apply { name = newName }
+            )
+                .setSupportsAllDrives(true)
+                .setFields("id,name")
+                .execute()
+            true
+        } catch (e: Exception) {
+            Log.e("DriveSync", "renameFile failed for $fileId to $newName", e)
+            false
+        }
+    }
+
+    private suspend fun resolveStorageFolderId(configId: String, config: Config): String? {
+        return config.storageFolderId ?: getParentId(configId)
+    }
+
+    private suspend fun createEmailPermission(fileId: String, email: String, role: String): String? {
+        return try {
+            val permission = Permission().apply {
+                type = "user"
+                this.role = role
+                emailAddress = email
+            }
+            drive.permissions().create(fileId, permission)
+                .setSupportsAllDrives(true)
+                .setSendNotificationEmail(false)
+                .setFields("id")
+                .execute()
+                .id
+        } catch (e: GoogleJsonResponseException) {
+            Log.e("DriveSync", "createEmailPermission failed for $fileId / $email with ${e.statusCode}", e)
+            null
+        } catch (e: Exception) {
+            Log.e("DriveSync", "createEmailPermission failed for $fileId / $email", e)
+            null
+        }
+    }
+
+    private suspend fun findPermissionForEmail(fileId: String, email: String): Permission? {
+        val normalizedEmail = normalizeEmail(email)
+        return try {
+            drive.permissions().list(fileId)
+                .setSupportsAllDrives(true)
+                .setFields("permissions(id,emailAddress,role,type)")
+                .execute()
+                .permissions
+                ?.firstOrNull { permission ->
+                    permission.type == "user" && normalizeEmail(permission.emailAddress) == normalizedEmail
+                }
+        } catch (e: Exception) {
+            Log.e("DriveSync", "findPermissionForEmail failed for $fileId / $normalizedEmail", e)
+            null
+        }
+    }
+
+    private suspend fun getPermission(fileId: String, permissionId: String): Permission? {
+        return try {
+            drive.permissions().get(fileId, permissionId)
+                .setSupportsAllDrives(true)
+                .setFields("id,emailAddress,role,type")
+                .execute()
+        } catch (e: GoogleJsonResponseException) {
+            if (e.statusCode == 404 || e.statusCode == 410) {
+                null
+            } else {
+                Log.e("DriveSync", "getPermission failed for $fileId / $permissionId with ${e.statusCode}", e)
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("DriveSync", "getPermission failed for $fileId / $permissionId", e)
+            null
+        }
+    }
+
+    private suspend fun updatePermissionRole(fileId: String, permissionId: String, role: String): Boolean {
+        return try {
+            drive.permissions().update(fileId, permissionId, Permission().apply { this.role = role })
+                .setSupportsAllDrives(true)
+                .setFields("id,role")
+                .execute()
+            true
+        } catch (e: Exception) {
+            Log.e("DriveSync", "updatePermissionRole failed for $fileId / $permissionId", e)
+            false
+        }
+    }
+
+    private suspend fun deletePermission(fileId: String, permissionId: String?): Boolean {
+        if (permissionId.isNullOrBlank()) return true
+        return try {
+            drive.permissions().delete(fileId, permissionId)
+                .setSupportsAllDrives(true)
+                .execute()
+            true
+        } catch (e: GoogleJsonResponseException) {
+            if (e.statusCode == 404 || e.statusCode == 410) {
+                true
+            } else {
+                Log.e("DriveSync", "deletePermission failed for $fileId / $permissionId with ${e.statusCode}", e)
+                false
+            }
+        } catch (e: Exception) {
+            Log.e("DriveSync", "deletePermission failed for $fileId / $permissionId", e)
+            false
+        }
+    }
+
+    private suspend fun deletePermissionForEmail(fileId: String, email: String): Boolean {
+        val permission = findPermissionForEmail(fileId, email) ?: return true
+        return deletePermission(fileId, permission.id)
+    }
+
+    private suspend fun rollbackPermissionMutations(mutations: List<PermissionMutation>) {
+        mutations.asReversed().forEach { mutation ->
+            if (mutation.created) {
+                deletePermission(mutation.fileId, mutation.permissionId)
+            } else if (mutation.previousRole != null) {
+                updatePermissionRole(mutation.fileId, mutation.permissionId, mutation.previousRole)
+            }
+        }
+    }
+
+    private suspend fun upsertFilePermission(
+        fileId: String,
+        email: String,
+        role: String,
+        writable: Boolean,
+        previousPermissionId: String? = null
+    ): Pair<String, PermissionMutation?>? {
+        val normalizedEmail = normalizeEmail(email)
+        val targetRole = readerOrWriterForRole(role, writable)
+        val existingPermission = previousPermissionId
+            ?.let { getPermission(fileId, it) }
+            ?.takeIf { normalizeEmail(it.emailAddress) == normalizedEmail }
+            ?: findPermissionForEmail(fileId, normalizedEmail)
+
+        if (existingPermission != null) {
+            if (existingPermission.role == targetRole) {
+                return existingPermission.id to null
+            }
+            if (!updatePermissionRole(fileId, existingPermission.id, targetRole)) {
+                return null
+            }
+            return existingPermission.id to PermissionMutation(
+                fileId = fileId,
+                permissionId = existingPermission.id,
+                previousRole = existingPermission.role,
+                created = false
+            )
+        }
+
+        val createdId = createEmailPermission(fileId, normalizedEmail, targetRole) ?: return null
+        return createdId to PermissionMutation(
+            fileId = fileId,
+            permissionId = createdId,
+            previousRole = null,
+            created = true
+        )
+    }
+
+    private suspend fun setWritersCanShareDisabled(fileId: String): Boolean {
+        return try {
+            drive.files().update(
+                fileId,
+                com.google.api.services.drive.model.File().apply {
+                    writersCanShare = false
+                }
+            )
+                .setSupportsAllDrives(true)
+                .setFields("id,writersCanShare")
+                .execute()
+            true
+        } catch (e: Exception) {
+            Log.e("DriveSync", "setWritersCanShareDisabled failed for $fileId", e)
+            false
+        }
+    }
+
+    private suspend fun buildRosterEntryForFiles(
+        configFileId: String,
+        databaseFileId: String,
+        logoFileId: String?,
+        email: String,
+        role: String,
+        previousEntry: AccessRosterEntry? = null
+    ): AccessRosterEntry? {
+        val normalizedEmail = normalizeEmail(email)
+        if (normalizedEmail.isBlank()) return null
+        val createdAt = previousEntry?.createdAt ?: Instant.now().toString()
+        val mutations = mutableListOf<PermissionMutation>()
+        val databasePermission = upsertFilePermission(
+            fileId = databaseFileId,
+            email = normalizedEmail,
+            role = role,
+            writable = canonicalRole(role) in setOf(SessionManager.ROLE_MANAGER, SessionManager.ROLE_DIRECTOR),
+            previousPermissionId = previousEntry?.databasePermissionId
+        ) ?: return null
+        databasePermission.second?.let(mutations::add)
+        val configPermission = upsertFilePermission(
+            fileId = configFileId,
+            email = normalizedEmail,
+            role = role,
+            writable = canonicalRole(role) == SessionManager.ROLE_DIRECTOR,
+            previousPermissionId = previousEntry?.configPermissionId
+        ) ?: run {
+            rollbackPermissionMutations(mutations)
+            return null
+        }
+        configPermission.second?.let(mutations::add)
+        val logoPermissionId = if (logoFileId != null) {
+            val logoPermission = upsertFilePermission(
+                fileId = logoFileId,
+                email = normalizedEmail,
+                role = role,
+                writable = canonicalRole(role) == SessionManager.ROLE_DIRECTOR,
+                previousPermissionId = previousEntry?.logoPermissionId
+            )
+            if (logoPermission == null) {
+                rollbackPermissionMutations(mutations)
+                return null
+            }
+            logoPermission.second?.let(mutations::add)
+            logoPermission.first
+        } else {
+            null
+        }
+        return AccessRosterEntry(
+            email = normalizedEmail,
+            role = canonicalRole(role),
+            isActive = true,
+            createdAt = createdAt,
+            configPermissionId = configPermission.first,
+            databasePermissionId = databasePermission.first,
+            logoPermissionId = logoPermissionId
+        )
+    }
 
     private fun normalizeForDuplicate(value: String?): String =
         value.orEmpty().trim().lowercase(Locale.US).replace(Regex("[^a-z0-9@+]"), "")
@@ -221,7 +489,9 @@ class DriveSyncManager(
                     val parser = SimpleDateFormat(format, Locale.US)
                     parser.isLenient = true
                     val date = parser.parse(dateStr)
-                    return SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(date)
+                    if (date != null) {
+                        return SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(date)
+                    }
                 } catch (_: Exception) {
                     continue
                 }
@@ -357,6 +627,149 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
+    suspend fun getOrganizationAccessCapabilities(
+        config: Config,
+        configId: String,
+        signedInEmail: String?
+    ): OrganizationAccessCapabilities = withContext(Dispatchers.IO) {
+        try {
+            val normalizedSignedInEmail = normalizeEmail(signedInEmail)
+            val normalizedOwnerEmail = normalizeEmail(config.storageOwnerEmail)
+            if (normalizedSignedInEmail.isBlank() || normalizedSignedInEmail != normalizedOwnerEmail) {
+                val ownerEmail = config.storageOwnerEmail?.takeIf { it.isNotBlank() } ?: "the storage owner"
+                return@withContext OrganizationAccessCapabilities(
+                    canManageAccess = false,
+                    restrictionMessage = "Only the storage-owning Director can manage organization access for this storage. Ask $ownerEmail to manage invitations or permissions."
+                )
+            }
+            val storageFolderId = config.storageFolderId ?: getParentId(configId)
+            if (storageFolderId.isNullOrBlank()) {
+                return@withContext OrganizationAccessCapabilities(
+                    canManageAccess = false,
+                    restrictionMessage = "easyPass could not verify the private storage folder for this organization."
+                )
+            }
+            val ids = buildList {
+                add(storageFolderId)
+                add(configId)
+                if (config.activeDatabaseId.isNotBlank()) add(config.activeDatabaseId)
+                config.branding.logoFileId?.takeIf { it.isNotBlank() }?.let(::add)
+            }
+            val canManageAll = ids.all { fileId ->
+                val file = drive.files().get(fileId)
+                    .setFields("capabilities")
+                    .setSupportsAllDrives(true)
+                    .execute()
+                when (fileId) {
+                    storageFolderId -> file.capabilities?.canAddChildren == true && file.capabilities?.canDelete == true
+                    else -> file.capabilities?.canShare == true && file.capabilities?.canDelete == true
+                }
+            }
+            if (canManageAll) {
+                OrganizationAccessCapabilities(canManageAccess = true)
+            } else {
+                val ownerEmail = config.storageOwnerEmail?.takeIf { it.isNotBlank() } ?: "the storage owner"
+                OrganizationAccessCapabilities(
+                    canManageAccess = false,
+                    restrictionMessage = "This signed-in Google account cannot manage organization access for this storage. Ask $ownerEmail to manage invitations or permissions."
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("DriveSync", "getOrganizationAccessCapabilities failed", e)
+            OrganizationAccessCapabilities(
+                canManageAccess = false,
+                restrictionMessage = "easyPass could not verify Google Drive access-management permissions for this organization."
+            )
+        }
+    }
+
+    suspend fun inviteOrganizationUser(
+        configId: String,
+        currentConfig: Config,
+        email: String,
+        role: String
+    ): Config? = withContext(Dispatchers.IO) {
+        val normalizedEmail = normalizeEmail(email)
+        if (normalizedEmail.isBlank()) return@withContext null
+
+        val existingEntry = currentConfig.accessRoster.firstOrNull { normalizeEmail(it.email) == normalizedEmail }
+        val newEntry = buildRosterEntryForFiles(
+            configFileId = configId,
+            databaseFileId = currentConfig.activeDatabaseId,
+            logoFileId = currentConfig.branding.logoFileId,
+            email = normalizedEmail,
+            role = canonicalRole(role),
+            previousEntry = existingEntry
+        ) ?: return@withContext null
+
+        val updatedRoster = currentConfig.accessRoster
+            .filterNot { normalizeEmail(it.email) == normalizedEmail }
+            .plus(newEntry)
+            .sortedBy { it.email.lowercase(Locale.US) }
+        val updatedConfig = currentConfig.copy(
+            accessRoster = updatedRoster,
+            lastUpdated = Instant.now().toString()
+        )
+        if (updateConfigOnDrive(configId, updatedConfig)) updatedConfig else null
+    }
+
+    suspend fun removeOrganizationUser(
+        configId: String,
+        currentConfig: Config,
+        email: String
+    ): Config? = withContext(Dispatchers.IO) {
+        val normalizedEmail = normalizeEmail(email)
+        if (normalizedEmail == normalizeEmail(currentConfig.storageOwnerEmail)) return@withContext null
+        val entry = currentConfig.accessRoster.firstOrNull { normalizeEmail(it.email) == normalizedEmail }
+            ?: return@withContext null
+
+        val configRemoved = deletePermission(configId, entry.configPermissionId)
+        val databaseRemoved = deletePermission(currentConfig.activeDatabaseId, entry.databasePermissionId)
+        val logoRemoved = currentConfig.branding.logoFileId?.let { deletePermission(it, entry.logoPermissionId) } ?: true
+        if (!configRemoved || !databaseRemoved || !logoRemoved) {
+            return@withContext null
+        }
+
+        val updatedConfig = currentConfig.copy(
+            accessRoster = currentConfig.accessRoster.filterNot { normalizeEmail(it.email) == normalizedEmail },
+            lastUpdated = Instant.now().toString()
+        )
+        if (updateConfigOnDrive(configId, updatedConfig)) updatedConfig else null
+    }
+
+    suspend fun applyRosterToLogo(
+        configId: String,
+        currentConfig: Config,
+        logoFileId: String?
+    ): Config? = withContext(Dispatchers.IO) {
+        logoFileId?.let {
+            if (!setWritersCanShareDisabled(it)) return@withContext null
+        }
+        val updatedRoster = currentConfig.accessRoster.map { entry ->
+            if (!entry.isActive || normalizeEmail(entry.email) == normalizeEmail(currentConfig.storageOwnerEmail)) {
+                entry.copy(logoPermissionId = null)
+            } else {
+                val permissionId = logoFileId?.let {
+                    upsertFilePermission(
+                        fileId = it,
+                        email = entry.email,
+                        role = entry.role,
+                        writable = canonicalRole(entry.role) == SessionManager.ROLE_DIRECTOR,
+                        previousPermissionId = entry.logoPermissionId
+                    )?.first
+                }
+                if (logoFileId != null && permissionId == null) return@withContext null
+                entry.copy(logoPermissionId = permissionId)
+            }
+        }
+        val updatedConfig = currentConfig.copy(
+            branding = currentConfig.branding.copy(logoFileId = logoFileId),
+            accessRoster = updatedRoster,
+            lastUpdated = Instant.now().toString()
+        )
+        if (updateConfigOnDrive(configId, updatedConfig)) updatedConfig else null
+    }
+
     suspend fun findExistingConfigId(): String? = withContext(Dispatchers.IO) {
         try {
             val result = drive.files().list()
@@ -445,13 +858,17 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun updateConfigOnDrive(configId: String, config: Config) = withContext(Dispatchers.IO) {
+    suspend fun updateConfigOnDrive(configId: String, config: Config): Boolean = withContext(Dispatchers.IO) {
         try {
             val configFile = File(context.cacheDir, "config.json").apply { writeText(gson.toJson(config)) }
             val content = FileContent("application/json", configFile)
-            drive.files().update(configId, null, content).execute()
+            drive.files().update(configId, null, content)
+                .setSupportsAllDrives(true)
+                .execute()
+            true
         } catch (e: Exception) { 
             Log.e("DriveSync", "updateConfigOnDrive failed", e)
+            false
         }
     }
 
@@ -603,7 +1020,7 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun createInitialFiles(folderId: String, adminHash: String, ownerHash: String): String? = withContext(Dispatchers.IO) {
+    suspend fun createInitialFiles(folderId: String, managerHash: String, directorHash: String, ownerEmail: String): String? = withContext(Dispatchers.IO) {
         try {
             val workbook = XSSFWorkbook()
             val sheet = workbook.createSheet("Members")
@@ -618,7 +1035,27 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 .setSupportsAllDrives(true)
                 .setFields("id")
                 .execute()
-            val config = Config(activeDatabaseId = uploadedExcel.id, roleHashes = mapOf("admin" to adminHash, "owner" to ownerHash), lastUpdated = Instant.now().toString())
+            if (!setWritersCanShareDisabled(uploadedExcel.id)) return@withContext null
+            val normalizedOwnerEmail = normalizeEmail(ownerEmail)
+            val config = Config(
+                activeDatabaseId = uploadedExcel.id,
+                storageFolderId = configFolderId,
+                roleHashes = canonicalRoleHashes(
+                    roleHashes = emptyMap(),
+                    managerHashOverride = managerHash,
+                    directorHashOverride = directorHash
+                ),
+                accessRoster = listOf(
+                    AccessRosterEntry(
+                        email = normalizedOwnerEmail,
+                        role = SessionManager.ROLE_DIRECTOR,
+                        isActive = true,
+                        createdAt = Instant.now().toString()
+                    )
+                ),
+                storageOwnerEmail = normalizedOwnerEmail,
+                lastUpdated = Instant.now().toString()
+            )
             val configFile = File(context.cacheDir, "initial_config.json").apply { writeText(gson.toJson(config)) }
             val uploadedConfig = drive.files().create(com.google.api.services.drive.model.File().apply { 
                 name = "config.json"; parents = listOf(configFolderId) 
@@ -626,6 +1063,11 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 .setSupportsAllDrives(true)
                 .setFields("id")
                 .execute()
+            if (!setWritersCanShareDisabled(uploadedConfig.id)) {
+                permanentlyDeleteFile(uploadedConfig.id)
+                permanentlyDeleteFile(uploadedExcel.id)
+                return@withContext null
+            }
             return@withContext uploadedConfig.id
         } catch (e: Exception) { 
             Log.e("DriveSync", "createInitialFiles failed", e)
@@ -714,22 +1156,37 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
     suspend fun relocateFolder(oldConfigId: String, targetFolderId: String): String? = withContext(Dispatchers.IO) {
         try {
             val oldConfig = downloadConfig(oldConfigId) ?: return@withContext null
-            val configFolderId = getOrCreateConfigFolder(targetFolderId) ?: return@withContext null
-            
+            val oldStorageFolderId = resolveStorageFolderId(oldConfigId, oldConfig)
+            val configFolderId = createFolder(targetFolderId, CONFIG_FOLDER_NAME) ?: return@withContext null
+
             val newDb = drive.files().copy(oldConfig.activeDatabaseId, com.google.api.services.drive.model.File().apply { 
                 name = "database.xlsx"; parents = listOf(configFolderId) 
-            }).setSupportsAllDrives(true).execute()
+            }).setSupportsAllDrives(true).setFields("id").execute()
+            if (!setWritersCanShareDisabled(newDb.id)) {
+                cleanupReplacementArtifacts(null, newDb.id, null, configFolderId)
+                return@withContext null
+            }
             var newLogoId: String? = null
             oldConfig.branding.logoFileId?.let { 
                 try { 
                     newLogoId = drive.files().copy(it, com.google.api.services.drive.model.File().apply { 
                         name = "logo.png"; parents = listOf(configFolderId) 
-                    }).setSupportsAllDrives(true).execute().id 
+                    }).setSupportsAllDrives(true).setFields("id").execute().id
+                    if (newLogoId != null && !setWritersCanShareDisabled(newLogoId!!)) {
+                        throw IllegalStateException("Could not secure replacement logo permissions.")
+                    }
                 } catch (e: Exception) { 
                     Log.e("DriveSync", "Failed to copy logo file $it to new folder", e)
+                    cleanupReplacementArtifacts(null, newDb.id, newLogoId, configFolderId)
+                    return@withContext null
                 } 
             }
-            val newConfig = oldConfig.copy(activeDatabaseId = newDb.id, branding = oldConfig.branding.copy(logoFileId = newLogoId))
+            var newConfig = oldConfig.copy(
+                activeDatabaseId = newDb.id,
+                storageFolderId = configFolderId,
+                roleHashes = canonicalRoleHashes(oldConfig.roleHashes),
+                branding = oldConfig.branding.copy(logoFileId = newLogoId)
+            )
             val tempConfigFile = File(context.cacheDir, "new_config.json").apply { writeText(gson.toJson(newConfig)) }
             val uploadedNewConfigId = drive.files().create(com.google.api.services.drive.model.File().apply { 
                 name = "config.json"; parents = listOf(configFolderId) 
@@ -737,17 +1194,40 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 .setSupportsAllDrives(true)
                 .setFields("id")
                 .execute().id
-            try { drive.files().delete(oldConfigId).setSupportsAllDrives(true).execute() } catch(e: Exception) {
-                Log.e("DriveSync", "Failed to delete old config file $oldConfigId", e)
+            if (!setWritersCanShareDisabled(uploadedNewConfigId)) {
+                cleanupReplacementArtifacts(uploadedNewConfigId, newDb.id, newLogoId, configFolderId)
+                return@withContext null
             }
-            try { drive.files().delete(oldConfig.activeDatabaseId).setSupportsAllDrives(true).execute() } catch(e: Exception) {
-                Log.e("DriveSync", "Failed to delete old database file ${oldConfig.activeDatabaseId}", e)
-            }
-            oldConfig.branding.logoFileId?.let { 
-                try { drive.files().delete(it).setSupportsAllDrives(true).execute() } catch(e: Exception) {
-                    Log.e("DriveSync", "Failed to delete old logo file $it", e)
+            val ownerEmail = normalizeEmail(oldConfig.storageOwnerEmail)
+            val refreshedRoster = oldConfig.accessRoster.mapNotNull { entry ->
+                if (normalizeEmail(entry.email) == ownerEmail) {
+                    entry.copy(
+                        role = canonicalRole(entry.role),
+                        configPermissionId = null,
+                        databasePermissionId = null,
+                        logoPermissionId = null
+                    )
+                } else {
+                    buildRosterEntryForFiles(
+                        configFileId = uploadedNewConfigId,
+                        databaseFileId = newDb.id,
+                        logoFileId = newLogoId,
+                        email = entry.email,
+                        role = entry.role,
+                        previousEntry = null
+                    )
                 }
             }
+            newConfig = newConfig.copy(accessRoster = refreshedRoster)
+            if (!updateConfigOnDrive(uploadedNewConfigId, newConfig)) {
+                cleanupReplacementArtifacts(uploadedNewConfigId, newDb.id, newLogoId, configFolderId)
+                return@withContext null
+            }
+            if (!permanentlyDeleteFile(oldConfigId) || !permanentlyDeleteFile(oldConfig.activeDatabaseId)) {
+                return@withContext null
+            }
+            oldConfig.branding.logoFileId?.let { if (!permanentlyDeleteFile(it)) return@withContext null }
+            oldStorageFolderId?.let { permanentlyDeleteFile(it) }
             return@withContext uploadedNewConfigId
         } catch (e: Exception) { 
             Log.e("DriveSync", "relocateFolder failed for config $oldConfigId to folder $targetFolderId", e)
@@ -757,7 +1237,7 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
 
     suspend fun getParentId(fileId: String): String? = withContext(Dispatchers.IO) {
         try {
-            val file = drive.files().get(fileId).setFields("parents").execute()
+            val file = drive.files().get(fileId).setFields("parents").setSupportsAllDrives(true).execute()
             return@withContext file.parents?.firstOrNull()
         } catch (e: Exception) { 
             Log.e("DriveSync", "getParentId failed for file $fileId", e)
@@ -770,22 +1250,40 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
             val content = FileContent("image/png", file)
             if (existingFileId != null) { 
                 try { 
-                    return@withContext drive.files().update(existingFileId, null, content).setFields("id").execute().id 
+                    val updatedId = drive.files().update(existingFileId, null, content)
+                        .setSupportsAllDrives(true)
+                        .setFields("id")
+                        .execute()
+                        .id
+                    if (!setWritersCanShareDisabled(updatedId)) return@withContext null
+                    return@withContext updatedId
                 } catch (e: Exception) { 
                     Log.e("DriveSync", "Failed to update existing logo file $existingFileId", e)
                 } 
             }
-            return@withContext drive.files().create(com.google.api.services.drive.model.File().apply { name = "logo.png"; parents = listOf(folderId) }, content).setFields("id").execute().id
+            val createdId = drive.files().create(
+                com.google.api.services.drive.model.File().apply { name = "logo.png"; parents = listOf(folderId) },
+                content
+            )
+                .setSupportsAllDrives(true)
+                .setFields("id")
+                .execute()
+                .id
+            if (!setWritersCanShareDisabled(createdId)) {
+                permanentlyDeleteFile(createdId)
+                return@withContext null
+            }
+            return@withContext createdId
         } catch (e: Exception) { 
             Log.e("DriveSync", "uploadLogo failed for folder $folderId", e)
             null 
         }
     }
 
-    suspend fun validateRevocationCapabilities(configId: String, databaseId: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun validateRevocationCapabilities(configId: String, databaseId: String, storageFolderId: String?): Boolean = withContext(Dispatchers.IO) {
         try {
-            val configParentId = getParentId(configId) ?: return@withContext false
-            val folder = drive.files().get(configParentId)
+            val effectiveFolderId = storageFolderId ?: getParentId(configId) ?: return@withContext false
+            val folder = drive.files().get(effectiveFolderId)
                 .setFields("capabilities")
                 .setSupportsAllDrives(true)
                 .execute()
@@ -798,6 +1296,7 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 .setSupportsAllDrives(true)
                 .execute()
             (folder.capabilities?.canAddChildren == true) &&
+                (folder.capabilities?.canDelete == true) &&
                 (configFile.capabilities?.canDelete == true) &&
                 (dbFile.capabilities?.canDelete == true)
         } catch (e: Exception) {
@@ -823,46 +1322,94 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
         }
     }
 
-    suspend fun revokeAllUsersPermission(
+    suspend fun revokeAllUsersAccess(
         oldConfigId: String,
         currentConfig: Config,
         newManagerHash: String,
-        newDirectorHash: String
+        newDirectorHash: String,
+        initiatingDirectorEmail: String
     ): RevokeOrganizationAccessResult = withContext(Dispatchers.IO) {
         val oldDatabaseId = currentConfig.activeDatabaseId
         if (oldDatabaseId.isBlank()) {
             return@withContext RevokeOrganizationAccessResult.Failure("Current organization database is missing.")
         }
 
-        if (!validateRevocationCapabilities(oldConfigId, oldDatabaseId)) {
+        val oldStorageFolderId = resolveStorageFolderId(oldConfigId, currentConfig)
+            ?: return@withContext RevokeOrganizationAccessResult.Failure("Could not locate the current easyPass storage folder.")
+
+        if (!validateRevocationCapabilities(oldConfigId, oldDatabaseId, oldStorageFolderId)) {
             return@withContext RevokeOrganizationAccessResult.Failure("Google Drive permissions are not sufficient to replace and delete the current organization files.")
         }
 
-        val parentId = getParentId(oldConfigId)
+        val parentId = getParentId(oldStorageFolderId)
             ?: return@withContext RevokeOrganizationAccessResult.Failure("Could not locate the current easyPass storage folder.")
 
         var newConfigId: String? = null
         var newDatabaseId: String? = null
+        var newLogoId: String? = null
+        var newStorageFolderId: String? = null
 
         try {
+            newStorageFolderId = createFolder(parentId, "$CONFIG_FOLDER_NAME-${System.currentTimeMillis()}")
+                ?: return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not create a replacement storage folder.")
+
             val copiedDatabase = drive.files().copy(
                 oldDatabaseId,
                 com.google.api.services.drive.model.File().apply {
                     name = "database.xlsx"
-                    parents = listOf(parentId)
+                    parents = listOf(newStorageFolderId)
                 }
             )
                 .setSupportsAllDrives(true)
                 .setFields("id")
                 .execute()
             newDatabaseId = copiedDatabase.id
+            if (!setWritersCanShareDisabled(copiedDatabase.id)) {
+                cleanupReplacementArtifacts(newConfigId, newDatabaseId, null, newStorageFolderId)
+                return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not secure the replacement organization database.")
+            }
+
+            currentConfig.accessRoster
+                .filter { normalizeEmail(it.email) != normalizeEmail(initiatingDirectorEmail) }
+                .forEach { entry ->
+                    deletePermissionForEmail(copiedDatabase.id, entry.email)
+                }
+
+            currentConfig.branding.logoFileId?.let { logoId ->
+                if (!moveFileToFolder(logoId, newStorageFolderId)) {
+                    cleanupReplacementArtifacts(newConfigId, newDatabaseId, null, newStorageFolderId)
+                    return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not move the organization logo into the replacement storage folder.")
+                }
+                newLogoId = logoId
+                if (!setWritersCanShareDisabled(logoId)) {
+                    cleanupReplacementArtifacts(newConfigId, newDatabaseId, null, newStorageFolderId)
+                    return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not secure the replacement organization logo.")
+                }
+                currentConfig.accessRoster
+                    .filter { normalizeEmail(it.email) != normalizeEmail(initiatingDirectorEmail) }
+                    .forEach { entry ->
+                        deletePermissionForEmail(logoId, entry.email)
+                    }
+            }
 
             val updatedConfig = currentConfig.copy(
                 activeDatabaseId = copiedDatabase.id,
-                roleHashes = currentConfig.roleHashes.toMutableMap().apply {
-                    this["admin"] = newManagerHash
-                    this["owner"] = newDirectorHash
-                },
+                storageFolderId = newStorageFolderId,
+                roleHashes = canonicalRoleHashes(
+                    currentConfig.roleHashes,
+                    managerHashOverride = newManagerHash,
+                    directorHashOverride = newDirectorHash
+                ),
+                branding = currentConfig.branding.copy(logoFileId = newLogoId),
+                accessRoster = listOf(
+                    AccessRosterEntry(
+                        email = normalizeEmail(initiatingDirectorEmail),
+                        role = SessionManager.ROLE_DIRECTOR,
+                        isActive = true,
+                        createdAt = Instant.now().toString()
+                    )
+                ),
+                storageOwnerEmail = normalizeEmail(initiatingDirectorEmail),
                 lastUpdated = Instant.now().toString()
             )
 
@@ -873,7 +1420,7 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
             val uploadedConfig = drive.files().create(
                 com.google.api.services.drive.model.File().apply {
                     name = "config.json"
-                    parents = listOf(parentId)
+                    parents = listOf(newStorageFolderId)
                 },
                 FileContent("application/json", configFile)
             )
@@ -881,11 +1428,15 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 .setFields("id")
                 .execute()
             newConfigId = uploadedConfig.id
+            if (!setWritersCanShareDisabled(uploadedConfig.id)) {
+                cleanupReplacementArtifacts(newConfigId, newDatabaseId, null, newStorageFolderId)
+                return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not secure the replacement organization connection.")
+            }
 
             val verifiedConfig = when (val configResult = downloadConfigResult(uploadedConfig.id)) {
                 is ConfigLoadResult.Success -> configResult.config
                 else -> {
-                    cleanupReplacementArtifacts(newConfigId, newDatabaseId)
+                    cleanupReplacementArtifacts(newConfigId, newDatabaseId, null, newStorageFolderId)
                     return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not verify the replacement organization connection.")
                 }
             }
@@ -893,15 +1444,19 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
             when (downloadFileBytes(verifiedConfig.activeDatabaseId)) {
                 is FileDownloadResult.Success -> Unit
                 else -> {
-                    cleanupReplacementArtifacts(newConfigId, newDatabaseId)
+                    cleanupReplacementArtifacts(newConfigId, newDatabaseId, null, newStorageFolderId)
                     return@withContext RevokeOrganizationAccessResult.Failure("easyPass could not verify the replacement organization database.")
                 }
             }
 
             val configDeleted = permanentlyDeleteFile(oldConfigId)
             val databaseDeleted = permanentlyDeleteFile(oldDatabaseId)
+            val oldFolderDeleted = permanentlyDeleteFile(oldStorageFolderId)
+            if (configDeleted && databaseDeleted && oldFolderDeleted) {
+                renameFile(newStorageFolderId, CONFIG_FOLDER_NAME)
+            }
 
-            if (configDeleted && databaseDeleted) {
+            if (configDeleted && databaseDeleted && oldFolderDeleted) {
                 RevokeOrganizationAccessResult.Success(
                     newConfigId = uploadedConfig.id,
                     newConfig = verifiedConfig,
@@ -917,23 +1472,39 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                 )
             }
         } catch (e: Exception) {
-            Log.e("DriveSync", "revokeAllUsersPermission failed", e)
-            cleanupReplacementArtifacts(newConfigId, newDatabaseId)
-            RevokeOrganizationAccessResult.Failure("easyPass could not complete the organization permission reset.")
+            Log.e("DriveSync", "revokeAllUsersAccess failed", e)
+            cleanupReplacementArtifacts(newConfigId, newDatabaseId, null, newStorageFolderId)
+            RevokeOrganizationAccessResult.Failure("easyPass could not complete the organization access reset.")
         }
     }
 
-    private suspend fun cleanupReplacementArtifacts(newConfigId: String?, newDatabaseId: String?) {
+    suspend fun revokeAllUsersPermission(
+        oldConfigId: String,
+        currentConfig: Config,
+        newManagerHash: String,
+        newDirectorHash: String,
+        initiatingDirectorEmail: String
+    ): RevokeOrganizationAccessResult = revokeAllUsersAccess(
+        oldConfigId = oldConfigId,
+        currentConfig = currentConfig,
+        newManagerHash = newManagerHash,
+        newDirectorHash = newDirectorHash,
+        initiatingDirectorEmail = initiatingDirectorEmail
+    )
+
+    private suspend fun cleanupReplacementArtifacts(
+        newConfigId: String?,
+        newDatabaseId: String?,
+        newLogoId: String? = null,
+        newStorageFolderId: String? = null
+    ) {
         newConfigId?.let { permanentlyDeleteFile(it) }
         newDatabaseId?.let { permanentlyDeleteFile(it) }
+        newLogoId?.let { permanentlyDeleteFile(it) }
+        newStorageFolderId?.let { permanentlyDeleteFile(it) }
     }
 
     companion object {
-        fun createAnonymous(context: Context): DriveSyncManager {
-            val drive = Drive.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), null).setApplicationName("easyPass").build()
-            return DriveSyncManager(context, drive, isAnonymous = true)
-        }
-        
         fun createWithCredential(context: Context, credential: GoogleAccountCredential): DriveSyncManager {
             val drive = Drive.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), credential).setApplicationName("easyPass").build()
             return DriveSyncManager(context, drive)

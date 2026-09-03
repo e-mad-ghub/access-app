@@ -72,7 +72,7 @@ fun MainAppNavigation(
         if (activeRole != SessionManager.ROLE_SCANNER) {
             list.add(TabItem("members", "Members", Icons.Default.Group))
         }
-        if (activeRole == SessionManager.ROLE_OWNER) {
+        if (activeRole == SessionManager.ROLE_DIRECTOR) {
             list.add(TabItem("director", "Director", Icons.Default.VpnKey))
         }
         list
@@ -280,7 +280,6 @@ private fun TabPageContent(
         "settings" -> {
             AdminSettingsScreen(
                 config = currentConfig,
-                activeRole = activeRole,
                 onLeaveOrganization = onLeaveOrganization,
                 onReplayGuides = onReplayGuides
             )

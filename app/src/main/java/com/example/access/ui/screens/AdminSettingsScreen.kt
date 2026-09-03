@@ -5,10 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,8 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.easyapps.easypass.BuildConfig
 import com.example.access.data.Config
@@ -27,19 +22,15 @@ import com.example.access.ui.components.ProfessionalActionRow
 import com.example.access.ui.components.ProfessionalPageHeader
 import com.example.access.ui.components.ProfessionalScreen
 import com.example.access.ui.components.ProfessionalSectionCard
-import com.example.access.util.SecurityUtils
-import com.example.access.util.SessionManager
 
 @Composable
 fun AdminSettingsScreen(
     config: Config,
-    activeRole: String,
     onLeaveOrganization: (Boolean) -> Unit,
     onReplayGuides: () -> Unit
 ) {
     val context = LocalContext.current
     
-    var showInviteDialog by remember { mutableStateOf(false) }
     var showJoinDialog by remember { mutableStateOf(false) }
     var showLeaveDialog by remember { mutableStateOf(false) }
     var signOutGoogleOnLeave by remember { mutableStateOf(false) }
@@ -55,14 +46,6 @@ fun AdminSettingsScreen(
             subtitle = "Connect this device to the right easyPass database.",
             icon = Icons.Default.Business
         ) {
-            if (activeRole != SessionManager.ROLE_SCANNER) {
-                ProfessionalActionRow(
-                    icon = Icons.Default.Share,
-                    title = "Invite staff",
-                    body = "Create a secure invite link for another device.",
-                    onClick = { showInviteDialog = true }
-                )
-            }
             ProfessionalActionRow(
                 icon = Icons.Default.AddLink,
                 title = "Switch organization",
@@ -131,45 +114,6 @@ fun AdminSettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showLeaveDialog = false }) { Text("Cancel") }
             }
-        )
-    }
-
-    if (showInviteDialog) {
-        val joinAccessCode = remember(showInviteDialog) { SecurityUtils.generateInviteAccessCode() }
-        val formattedJoinAccessCode = remember(joinAccessCode) { SecurityUtils.formatInviteAccessCode(joinAccessCode) }
-        val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", "") ?: ""
-        AlertDialog(
-            onDismissRequest = { showInviteDialog = false },
-            title = { Text("Secure Staff Invite", fontWeight = FontWeight.Black) },
-            text = {
-                Column {
-                    Text("Recipients will need this invitation access code to join.", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = formattedJoinAccessCode,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Invitation access code") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val encryptedKey = SecurityUtils.encryptInvite(configId, joinAccessCode)
-                        val inviteUrl = "https://easyapps-solutions.com/join?key=$encryptedKey"
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, "Join our team on easyPass. Paste this link into the app and enter access code: $formattedJoinAccessCode\n\nLink: $inviteUrl")
-                        }
-                        context.startActivity(Intent.createChooser(intent, "Share Invite"))
-                        showInviteDialog = false
-                    }
-                ) { Text("Share Link") }
-            },
-            dismissButton = { TextButton(onClick = { showInviteDialog = false }) { Text("Cancel") } }
         )
     }
 

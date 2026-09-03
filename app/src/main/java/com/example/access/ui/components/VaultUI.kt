@@ -79,8 +79,13 @@ fun PasswordElevationDialog(
             "${e.statusCode}: ${CommonStatusCodes.getStatusCodeString(e.statusCode)}"
         }
         if (signInError == null && GoogleSignIn.getLastSignedInAccount(context) != null) {
-            val role = sessionManager.applyPendingRole()
-            Toast.makeText(context, "Switched to ${roleDisplayName(role)}", Toast.LENGTH_SHORT).show()
+            val pendingRole = sessionManager.applyPendingRole()
+            if (pendingRole != null && sessionManager.canCurrentEmailUseRole(pendingRole)) {
+                Toast.makeText(context, "Switched to ${roleDisplayName(pendingRole)}", Toast.LENGTH_SHORT).show()
+            } else {
+                sessionManager.resetSession()
+                Toast.makeText(context, "This Google account is not approved for that role.", Toast.LENGTH_LONG).show()
+            }
         } else {
             sessionManager.setPendingRole(null)
             Toast.makeText(context, "Identity Verification Failed${signInError?.let { error -> " ($error)" } ?: ""}", Toast.LENGTH_LONG).show()
@@ -90,7 +95,7 @@ fun PasswordElevationDialog(
 
     fun proceedWithRole(role: String) {
         Toast.makeText(context, "Key Accepted", Toast.LENGTH_SHORT).show()
-        if (role == SessionManager.ROLE_ADMIN || role == SessionManager.ROLE_OWNER) {
+        if (role == SessionManager.ROLE_MANAGER || role == SessionManager.ROLE_DIRECTOR) {
             val account = GoogleSignIn.getLastSignedInAccount(context)
             if (account == null) {
                 sessionManager.setPendingRole(role)
@@ -100,6 +105,10 @@ fun PasswordElevationDialog(
                     .requestScopes(Scope(DriveScopes.DRIVE))
                     .build()
                 signInLauncher.launch(GoogleSignIn.getClient(context, gso).signInIntent)
+            } else if (!sessionManager.canCurrentEmailUseRole(role)) {
+                Toast.makeText(context, "This Google account is not approved for the ${roleDisplayName(role)} role.", Toast.LENGTH_LONG).show()
+                onSessionChanged()
+                onDismiss()
             } else {
                 sessionManager.setActiveRole(role)
                 Toast.makeText(context, "Switched to ${roleDisplayName(role)}", Toast.LENGTH_SHORT).show()
@@ -211,15 +220,15 @@ fun ElevatedBanner(role: String, onEndSession: () -> Unit) {
 
 private fun roleBannerColor(role: String): Color {
     return when (role) {
-        SessionManager.ROLE_OWNER -> Color(0xFF1D4ED8)
-        SessionManager.ROLE_ADMIN -> Color(0xFF047857)
+        SessionManager.ROLE_DIRECTOR -> Color(0xFF1D4ED8)
+        SessionManager.ROLE_MANAGER -> Color(0xFF047857)
         else -> Color(0xFF98A2B3)
     }
 }
 
 @Composable
 fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
-    var selectedRole by remember { mutableStateOf(SessionManager.ROLE_ADMIN) }
+    var selectedRole by remember { mutableStateOf(SessionManager.ROLE_MANAGER) }
     var password by remember { mutableStateOf("") }
     var showRoleInfo by remember { mutableStateOf(false) }
     val selectedRoleLabel = roleDisplayName(selectedRole)
@@ -264,8 +273,8 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     FilterChip(
-                        selected = selectedRole == SessionManager.ROLE_ADMIN,
-                        onClick = { selectedRole = SessionManager.ROLE_ADMIN },
+                        selected = selectedRole == SessionManager.ROLE_MANAGER,
+                        onClick = { selectedRole = SessionManager.ROLE_MANAGER },
                         label = { Text("Manager") },
                         leadingIcon = {
                             Icon(Icons.Default.AdminPanelSettings, null, modifier = Modifier.size(18.dp))
@@ -273,8 +282,8 @@ fun PasswordDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
                         modifier = Modifier.weight(1f)
                     )
                     FilterChip(
-                        selected = selectedRole == SessionManager.ROLE_OWNER,
-                        onClick = { selectedRole = SessionManager.ROLE_OWNER },
+                        selected = selectedRole == SessionManager.ROLE_DIRECTOR,
+                        onClick = { selectedRole = SessionManager.ROLE_DIRECTOR },
                         label = { Text("Director") },
                         leadingIcon = {
                             Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(18.dp))
@@ -313,11 +322,7 @@ private fun RoleExplanationLine(title: String, body: String) {
 }
 
 private fun roleDisplayName(role: String?): String {
-    return when (role) {
-        SessionManager.ROLE_ADMIN -> "Manager"
-        SessionManager.ROLE_OWNER -> "Director"
-        else -> "Scanner"
-    }
+    return SessionManager.roleDisplayName(role)
 }
 
 /**
