@@ -424,6 +424,23 @@ fun OwnerDashboardScreen(
                             trailing = {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     ProfessionalStatusChip(roleDisplayName(entry.role).uppercase(), MaterialTheme.colorScheme.primary)
+                                    IconButton(
+                                        onClick = {
+                                            shareOrganizationInvitation(
+                                                context = context,
+                                                configFileId = configFileId,
+                                                email = entry.email,
+                                                role = entry.role
+                                            )
+                                        },
+                                        enabled = accessCapabilities?.canManageAccess == true
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Share,
+                                            contentDescription = "Share invitation for ${entry.email}",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                     if (entry.email != config.storageOwnerEmail) {
                                         TextButton(
                                             onClick = { accessEntryToRemove = entry },
@@ -543,10 +560,9 @@ fun OwnerDashboardScreen(
     }
     if (showInviteDialog) {
         InviteOrganizationUserDialog(
+            config = config,
             onDismiss = { showInviteDialog = false },
             onInvite = { email, role ->
-                val joinAccessCode = SecurityUtils.generateInviteAccessCode()
-                val formattedJoinAccessCode = SecurityUtils.formatInviteAccessCode(joinAccessCode)
                 isBusy = true
                 scope.launch {
                     val updatedConfig = syncManager?.inviteOrganizationUser(configFileId, config, email, role)
@@ -555,14 +571,7 @@ fun OwnerDashboardScreen(
                         Toast.makeText(context, "easyPass could not grant access for this Google account.", Toast.LENGTH_LONG).show()
                     } else {
                         onConfigUpdated(updatedConfig)
-                        val encryptedKey = SecurityUtils.encryptInvite(configFileId, joinAccessCode, email, role)
-                        val inviteUrl = "https://easyapps-solutions.com/join?key=$encryptedKey"
-                        val inviteText = "Join this easyPass organization with Google account: ${email.trim()}\nRole: ${roleDisplayName(role)}\nInvitation access code: $formattedJoinAccessCode\n\nLink: $inviteUrl"
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, inviteText)
-                        }
-                        context.startActivity(Intent.createChooser(intent, "Share easyPass invitation"))
+                        shareOrganizationInvitation(context, configFileId, email, role)
                         showInviteDialog = false
                     }
                 }
@@ -683,8 +692,32 @@ private fun roleDisplayName(role: String): String {
     return SessionManager.roleDisplayName(role)
 }
 
+/** Generates a fresh join credential without changing the recipient's existing Drive access. */
+private fun shareOrganizationInvitation(
+    context: Context,
+    configFileId: String,
+    email: String,
+    role: String
+) {
+    try {
+        val joinAccessCode = SecurityUtils.generateInviteAccessCode()
+        val formattedJoinAccessCode = SecurityUtils.formatInviteAccessCode(joinAccessCode)
+        val encryptedKey = SecurityUtils.encryptInvite(configFileId, joinAccessCode, email, role)
+        val inviteUrl = "https://easyapps-solutions.com/join?key=$encryptedKey"
+        val inviteText = "Join this easyPass organization with Google account: ${email.trim()}\nRole: ${roleDisplayName(role)}\nInvitation access code: $formattedJoinAccessCode\n\nLink: $inviteUrl"
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, inviteText)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share easyPass invitation"))
+    } catch (error: Exception) {
+        Toast.makeText(context, "easyPass could not create an invitation.", Toast.LENGTH_LONG).show()
+    }
+}
+
 @Composable
 private fun InviteOrganizationUserDialog(
+    config: Config,
     onDismiss: () -> Unit,
     onInvite: (email: String, role: String) -> Unit
 ) {
@@ -692,6 +725,16 @@ private fun InviteOrganizationUserDialog(
     var selectedRole by remember { mutableStateOf(SessionManager.ROLE_SCANNER) }
     val normalizedEmail = email.trim()
     val isValidEmail = normalizedEmail.matches(Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$"))
+    val existingEntry = config.activeAccessEntryFor(normalizedEmail)
+    val isStorageOwnerEmail = existingEntry?.email == config.storageOwnerEmail
+    val selectedRoleLabel = roleDisplayName(selectedRole)
+    val confirmLabel = when {
+        isStorageOwnerEmail -> "Use share from the access list"
+        existingEntry != null && SessionManager.canonicalRole(existingEntry.role) == SessionManager.canonicalRole(selectedRole) -> "Reinvite"
+        existingEntry != null -> "Replace role and invite"
+        else -> "Grant access"
+    }
+    val canInvite = isValidEmail && !isStorageOwnerEmail
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -711,6 +754,42 @@ private fun InviteOrganizationUserDialog(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
+                when {
+                    isStorageOwnerEmail -> {
+                        Surface(
+                            color = Color(0xFFEFF6FF),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color(0xFF93C5FD))
+                        ) {
+                            Text(
+                                "This email is already the storage-owning Director. Use the share button beside this email in the access list to send a fresh invitation without changing its access.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF1D4ED8)
+                            )
+                        }
+                    }
+                    existingEntry != null -> {
+                        val currentRoleLabel = roleDisplayName(existingEntry.role)
+                        val replacementMessage = if (SessionManager.canonicalRole(existingEntry.role) == SessionManager.canonicalRole(selectedRole)) {
+                            "This email already has $currentRoleLabel access. You can still send a fresh invitation for the same role."
+                        } else {
+                            "This email already has $currentRoleLabel access. Continuing will replace that access with $selectedRoleLabel and share a fresh invitation."
+                        }
+                        Surface(
+                            color = Color(0xFFFFF7ED),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color(0xFFFDBA74))
+                        ) {
+                            Text(
+                                replacementMessage,
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF9A3412)
+                            )
+                        }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = selectedRole == SessionManager.ROLE_SCANNER,
@@ -733,9 +812,9 @@ private fun InviteOrganizationUserDialog(
         confirmButton = {
             Button(
                 onClick = { onInvite(normalizedEmail, selectedRole) },
-                enabled = isValidEmail
+                enabled = canInvite
             ) {
-                Text("Grant access")
+                Text(confirmLabel)
             }
         },
         dismissButton = {
