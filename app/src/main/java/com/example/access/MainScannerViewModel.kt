@@ -8,6 +8,7 @@ import com.example.access.data.Config
 import com.example.access.data.AppDatabase
 import com.example.access.data.RecentScan
 import com.example.access.util.FREE_TIER_MEMBER_LIMIT
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -64,22 +65,30 @@ class MainScannerViewModel(application: Application) : AndroidViewModel(applicat
             lastScanElapsedMs = now
         }
 
-        viewModelScope.launch {
-            val member = if (isProOrganization) {
-                db.memberDao().getMemberByHash(normalizedBarcode)
-            } else {
-                db.memberDao()
-                    .getAllMembersList()
-                    .sortedBy { it.fullName.lowercase(Locale.US) }
-                    .take(FREE_TIER_MEMBER_LIMIT)
-                    .firstOrNull { it.qrCodeHash == normalizedBarcode }
+        viewModelScope.launch(Dispatchers.IO) {
+            val newScan = try {
+                val member = if (isProOrganization) {
+                    db.memberDao().getMemberByHash(normalizedBarcode)
+                } else {
+                    db.memberDao()
+                        .getAllMembersList()
+                        .sortedBy { it.fullName.lowercase(Locale.US) }
+                        .take(FREE_TIER_MEMBER_LIMIT)
+                        .firstOrNull { it.qrCodeHash == normalizedBarcode }
+                }
+                val isGranted = member != null && member.status.equals("Active", ignoreCase = true)
+                RecentScan(
+                    name = member?.fullName ?: "Unknown User",
+                    time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
+                    isGranted = isGranted
+                )
+            } catch (e: Exception) {
+                RecentScan(
+                    name = "Scanner unavailable",
+                    time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
+                    isGranted = false
+                )
             }
-            val isGranted = member != null && member.status.equals("Active", ignoreCase = true)
-            val newScan = RecentScan(
-                name = member?.fullName ?: "Unknown User",
-                time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
-                isGranted = isGranted
-            )
 
             _liveScanHistory.update { history ->
                 (listOf(newScan) + history).take(MAX_SCAN_HISTORY)
