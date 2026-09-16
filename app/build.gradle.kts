@@ -25,10 +25,14 @@ android {
         applicationId = "com.easyapps.easypass"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.1.2"
+        versionCode = 15
+        versionName = "1.1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     signingConfigs {
