@@ -63,13 +63,13 @@ fun AdminSettingsScreen(
 
         ProfessionalSectionCard(
             title = "App guidance",
-            subtitle = "Replay the easyPass introduction and the guide for each tab.",
+            subtitle = "Replay the guide for each app tab.",
             icon = Icons.Default.RestartAlt
         ) {
             ProfessionalActionRow(
                 icon = Icons.Default.RestartAlt,
                 title = "Show app guides again",
-                body = "Reset the introduction and every tab handbook on this device.",
+                body = "Reset every tab handbook on this device.",
                 onClick = onReplayGuides
             )
         }

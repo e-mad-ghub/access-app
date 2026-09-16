@@ -34,6 +34,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.easyapps.easypass.R
 import com.example.access.ui.components.LoadingOverlay
+import com.example.access.ui.components.SetupOrientationDialog
+import com.example.access.ui.components.hasSeenSetupOrientation
+import com.example.access.ui.components.markSetupOrientationSeen
 import com.example.access.ui.components.secretElevation
 import com.example.access.ui.theme.AccessTheme
 import com.example.access.util.ConfigLoadResult
@@ -61,6 +64,8 @@ class SetupWizardActivity : ComponentActivity() {
     private var isBusy by mutableStateOf(false)
     private var existingConfigFoundId by mutableStateOf<String?>(null)
     private var errorMessage by mutableStateOf<String?>(null)
+    private var showSetupOrientation by mutableStateOf(false)
+    private var runRestoreCheckAfterOrientation = false
     
     private var selectedFolderName by mutableStateOf("")
     private var selectedFolderId by mutableStateOf("")
@@ -94,10 +99,16 @@ class SetupWizardActivity : ComponentActivity() {
             encryptedInviteKey = data.getQueryParameter("key")
         }
 
+        showSetupOrientation = !hasSeenSetupOrientation(this)
+
         if (encryptedInviteKey != null) {
             currentStep = SetupStep.ENTER_JOIN_PIN
         } else if (googleAccount != null) {
-            checkDriveForExistingSetup()
+            if (showSetupOrientation) {
+                runRestoreCheckAfterOrientation = true
+            } else {
+                checkDriveForExistingSetup()
+            }
         }
 
         setContent {
@@ -112,10 +123,11 @@ class SetupWizardActivity : ComponentActivity() {
 
     @Composable
     fun SetupWizardScreen() {
-        Column(
-            modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             Surface(
                 modifier = Modifier.size(96.dp),
                 shape = RoundedCornerShape(24.dp),
@@ -173,6 +185,13 @@ class SetupWizardActivity : ComponentActivity() {
                     }
                 }
             }
+            }
+
+            if (showSetupOrientation) {
+                SetupOrientationDialog(
+                    onFinished = { finishSetupOrientation() }
+                )
+            }
         }
     }
 
@@ -184,6 +203,16 @@ class SetupWizardActivity : ComponentActivity() {
             errorMessage = null
             encryptedInviteKey = null
             pendingInvitePayload = null
+            runRestoreCheckAfterOrientation = false
+        }
+    }
+
+    private fun finishSetupOrientation() {
+        markSetupOrientationSeen(this)
+        showSetupOrientation = false
+        if (runRestoreCheckAfterOrientation) {
+            runRestoreCheckAfterOrientation = false
+            checkDriveForExistingSetup()
         }
     }
 
@@ -264,6 +293,13 @@ class SetupWizardActivity : ComponentActivity() {
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = { showSetupOrientation = true }) {
+                Icon(Icons.Default.Info, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("How easyPass works")
+            }
         }
 
         if (showManualJoin) {

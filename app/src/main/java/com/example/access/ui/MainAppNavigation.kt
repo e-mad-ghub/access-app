@@ -23,11 +23,8 @@ import com.example.access.data.Config
 import com.example.access.data.RecentScan
 import com.example.access.ui.components.ManagementSecretHandler
 import com.example.access.ui.components.PasswordElevationDialog
-import com.example.access.ui.components.AppOrientationDialog
 import com.example.access.ui.components.TabGuideDialog
-import com.example.access.ui.components.hasSeenAppOrientation
 import com.example.access.ui.components.hasSeenTabGuide
-import com.example.access.ui.components.markAppOrientationSeen
 import com.example.access.ui.components.markTabGuideSeen
 import com.example.access.ui.components.resetAppGuides
 import com.example.access.ui.screens.*
@@ -59,7 +56,6 @@ fun MainAppNavigation(
     var sessionKey by remember { mutableIntStateOf(0) }
     var showSecretDialog by remember { mutableStateOf(false) }
     var visibleGuideTab by remember { mutableStateOf<String?>(null) }
-    var showAppOrientation by remember { mutableStateOf(!hasSeenAppOrientation(context)) }
     val activeRole by sessionManager.activeRole.collectAsState()
 
     val tabs = remember(activeRole) {
@@ -97,15 +93,9 @@ fun MainAppNavigation(
         visibleGuideTab = null
     }
 
-    fun finishAppOrientation() {
-        markAppOrientationSeen(context)
-        showAppOrientation = false
-    }
-
     fun replayGuides() {
         resetAppGuides(context)
-        visibleGuideTab = null
-        showAppOrientation = true
+        visibleGuideTab = currentTab?.id
     }
 
     LaunchedEffect(activeRole, tabs.size) {
@@ -121,13 +111,13 @@ fun MainAppNavigation(
         }
     }
 
-    LaunchedEffect(currentTab?.id, showSecretDialog, showAppOrientation, pagerState.isScrollInProgress) {
+    LaunchedEffect(currentTab?.id, showSecretDialog, pagerState.isScrollInProgress) {
         val tab = currentTab ?: return@LaunchedEffect
-        if (showSecretDialog || showAppOrientation || visibleGuideTab != null || pagerState.isScrollInProgress) {
+        if (showSecretDialog || visibleGuideTab != null || pagerState.isScrollInProgress) {
             return@LaunchedEffect
         }
         delay(400)
-        if (!showSecretDialog && !showAppOrientation && !pagerState.isScrollInProgress && !hasSeenTabGuide(context, tab.id)) {
+        if (!showSecretDialog && !pagerState.isScrollInProgress && !hasSeenTabGuide(context, tab.id)) {
             visibleGuideTab = tab.id
         }
     }
@@ -211,12 +201,6 @@ fun MainAppNavigation(
             sessionManager = sessionManager,
             onDismiss = { showSecretDialog = false },
             onSessionChanged = { resetToDashboard() }
-        )
-    }
-
-    if (showAppOrientation) {
-        AppOrientationDialog(
-            onFinished = { finishAppOrientation() }
         )
     }
 

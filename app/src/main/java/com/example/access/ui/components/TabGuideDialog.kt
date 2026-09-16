@@ -75,7 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 private const val GUIDE_PREFS = "easypass_prefs"
-private const val ORIENTATION_KEY = "app_orientation_seen_v1"
+private const val SETUP_ORIENTATION_KEY = "setup_orientation_seen_v1"
 
 private val TabGuideIds = listOf(
     "dashboard",
@@ -107,10 +107,10 @@ private data class OrientationPage(
 )
 
 @Composable
-fun AppOrientationDialog(
+fun SetupOrientationDialog(
     onFinished: () -> Unit
 ) {
-    val pages = remember { orientationPages() }
+    val pages = remember { setupOrientationPages() }
     var page by remember { mutableIntStateOf(0) }
     val currentPage = pages[page]
     val isLastPage = page == pages.lastIndex
@@ -151,7 +151,7 @@ fun AppOrientationDialog(
                     page += 1
                 }
             }) {
-                Text(if (isLastPage) "Start using easyPass" else "Next")
+                Text(if (isLastPage) "Continue" else "Next")
             }
         },
         dismissButton = {
@@ -162,7 +162,7 @@ fun AppOrientationDialog(
                     }
                 }
                 TextButton(onClick = onFinished) {
-                    Text("Skip introduction")
+                    Text("Skip")
                 }
             }
         }
@@ -355,17 +355,17 @@ private fun ControlGuideRow(control: ControlGuide) {
     }
 }
 
-fun hasSeenAppOrientation(context: Context): Boolean {
+fun hasSeenSetupOrientation(context: Context): Boolean {
     return context
         .getSharedPreferences(GUIDE_PREFS, Context.MODE_PRIVATE)
-        .getBoolean(ORIENTATION_KEY, false)
+        .getBoolean(SETUP_ORIENTATION_KEY, false)
 }
 
-fun markAppOrientationSeen(context: Context) {
+fun markSetupOrientationSeen(context: Context) {
     context
         .getSharedPreferences(GUIDE_PREFS, Context.MODE_PRIVATE)
         .edit()
-        .putBoolean(ORIENTATION_KEY, true)
+        .putBoolean(SETUP_ORIENTATION_KEY, true)
         .apply()
 }
 
@@ -385,7 +385,6 @@ fun markTabGuideSeen(context: Context, tabId: String) {
 
 fun resetAppGuides(context: Context) {
     val editor = context.getSharedPreferences(GUIDE_PREFS, Context.MODE_PRIVATE).edit()
-    editor.putBoolean(ORIENTATION_KEY, false)
     TabGuideIds.forEach { editor.putBoolean(tabGuideKey(it), false) }
     editor.apply()
 }
@@ -394,49 +393,70 @@ private fun tabGuideKey(tabId: String): String {
     return "tab_guide_seen_v2_$tabId"
 }
 
-private fun orientationPages(): List<OrientationPage> {
+private fun setupOrientationPages(): List<OrientationPage> {
     return listOf(
         OrientationPage(
             icon = Icons.Default.Badge,
-            title = "Membership and access in one app",
-            body = "easyPass combines an organization member database with QR access verification.",
+            title = "What easyPass does",
+            body = "easyPass helps companies, gyms, clubs, and other organizations create and manage a member database.",
             bullets = listOf(
-                "Maintain member information and membership status.",
-                "Generate and share member QR passes.",
-                "Verify passes quickly from connected devices.",
-                "Designed as an affordable and lightweight solution for small and medium organizations."
+                "Keep member records, contact details, notes, and membership status in one shared database.",
+                "Generate and share QR passes for members.",
+                "Use scanner devices to verify access quickly.",
+                "Built as a lightweight solution for small and medium organizations."
             )
         ),
         OrientationPage(
             icon = Icons.Default.Cloud,
-            title = "Your data stays in your Drive",
-            body = "Your organization database is stored in your own Google Drive.",
+            title = "Create a new organization",
+            body = "Use Create or Restore Organization when you are starting a new organization or restoring one you already own.",
             bullets = listOf(
-                "You remain in control of the database.",
-                "Connected easyPass devices use the shared Drive database.",
-                "Each device signs in with an approved Google account before easyPass loads the organization.",
-                "easyPass uses minimal local device storage."
+                "Sign in with Google so easyPass can create organization storage in your Drive.",
+                "Set different Manager and Director passwords.",
+                "Choose a Google Drive folder.",
+                "easyPass creates its private organization storage inside that folder."
+            )
+        ),
+        OrientationPage(
+            icon = Icons.Default.AddLink,
+            title = "Join an existing organization",
+            body = "Use Join Existing Organization when you are joining an organization that already exists.",
+            bullets = listOf(
+                "The organization's Director shares an invitation link and a 16-character invitation access code.",
+                "Sign in with the Google email approved by the Director.",
+                "After the invitation is verified, the device starts in Scanner role."
             )
         ),
         OrientationPage(
             icon = Icons.Default.VerifiedUser,
-            title = "Three roles, clear responsibilities",
-            body = "easyPass starts in Scanner. Protected roles require their assigned passwords.",
+            title = "Roles and passwords",
+            body = "easyPass separates daily scanning from database and organization management.",
             bullets = listOf(
-                "Scanner verifies QR passes without editing the organization database.",
-                "Manager adds, edits, imports, exports, suspends, and reactivates members.",
-                "Director controls the subscription, branding, fields, passwords, and database storage."
+                "Scanner verifies QR passes and cannot edit member data.",
+                "Manager manages members, spreadsheets, and QR passes after entering the Manager password.",
+                "Director manages plan, branding, passwords, organization storage, and approved staff access after entering the Director password.",
+                "Manager and Director passwords must be different and should be stored safely."
+            )
+        ),
+        OrientationPage(
+            icon = Icons.Default.Folder,
+            title = "Your Google Drive folder",
+            body = "The selected Drive folder is a container, not the database file itself.",
+            bullets = listOf(
+                "easyPass creates a private EasyPass-configs folder inside your selected folder.",
+                "The organization database, settings, and optional branding stay in your Google Drive.",
+                "The app keeps only a temporary local cache needed for smooth use."
             )
         ),
         OrientationPage(
             icon = Icons.Default.Timeline,
-            title = "Your first easyPass workflow",
-            body = "Configure organization -> Add or import members -> Share QR passes -> Scan and verify",
+            title = "Start using easyPass",
+            body = "Create or join organization -> Add or import members -> Share QR passes -> Scan and verify",
             bullets = listOf(
-                "Switch to Director to configure the organization.",
-                "Switch to Manager to add or import members.",
-                "Share generated QR passes with members.",
-                "Return to Scanner for daily access verification."
+                "The app starts in Scanner for daily access verification.",
+                "Users can switch roles only within their approved access level.",
+                "Managers handle member records and QR passes.",
+                "Directors control organization-wide setup and access."
             )
         )
     )
@@ -477,7 +497,7 @@ private fun tabGuideContent(tabId: String): TabGuideModel {
                 ControlGuide(Icons.Default.AddLink, "Switch organization", "Connects the device using another organization's invitation link."),
                 ControlGuide(Icons.Default.Logout, "Leave organization", "Disconnects locally without deleting Drive files."),
                 ControlGuide(Icons.Default.ManageAccounts, "Also sign out of Google", "Removes the selected Google account when leaving."),
-                ControlGuide(Icons.Default.RestartAlt, "Show app guides again", "Resets the introduction and every tab handbook."),
+                ControlGuide(Icons.Default.RestartAlt, "Show app guides again", "Resets every tab handbook on this device."),
                 ControlGuide(Icons.Default.Info, "Version information", "Displays the installed app version and build.", readOnly = true)
             )
         )
