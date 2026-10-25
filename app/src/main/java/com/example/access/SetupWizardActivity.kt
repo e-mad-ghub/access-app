@@ -130,7 +130,7 @@ class SetupWizardActivity : ComponentActivity() {
     fun SetupWizardScreen() {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
-                modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(24.dp),
+                modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
             Surface(
@@ -178,8 +178,12 @@ class SetupWizardActivity : ComponentActivity() {
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            AnimatedContent(targetState = currentStep, label = "StepTransition") { step ->
-                Box(modifier = Modifier.fillMaxWidth()) {
+            AnimatedContent(
+                targetState = currentStep,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                label = "StepTransition"
+            ) { step ->
+                Box(modifier = Modifier.fillMaxSize()) {
                     when (step) {
                         SetupStep.SIGN_IN_OPTION -> SignInStep()
                         SetupStep.PASSWORDS -> PasswordStep()
@@ -531,7 +535,7 @@ class SetupWizardActivity : ComponentActivity() {
     fun PasteLinkStep() {
         var link by remember { mutableStateOf("") }
         var isVerifying by remember { mutableStateOf(false) }
-        Column {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
             Text("Data Storage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text("Paste the destination folder link.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
