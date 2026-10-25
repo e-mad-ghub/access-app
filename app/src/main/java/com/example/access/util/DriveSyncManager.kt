@@ -1065,6 +1065,7 @@ suspend fun migrateToConfigFolder(configId: String): Boolean = withContext(Dispa
                     )
                 ),
                 storageOwnerEmail = normalizedOwnerEmail,
+                tier = "pro",
                 lastUpdated = Instant.now().toString()
             )
             val configFile = File(context.cacheDir, "initial_config.json").apply { writeText(gson.toJson(config)) }
