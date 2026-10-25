@@ -130,7 +130,7 @@ class SetupWizardActivity : ComponentActivity() {
     fun SetupWizardScreen() {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
-                modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
+                modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
             Surface(
@@ -541,7 +541,7 @@ class SetupWizardActivity : ComponentActivity() {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = RoundedCornerShape(16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Google requires you to confirm the folder", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text("When Drive opens:\n1. If you are inside the destination folder, tap ⋮ and go up one level.\n2. Press and hold the destination folder until it is selected. A quick tap opens it.\n3. Tap Insert to give easyPass access.", style = MaterialTheme.typography.bodySmall)
+                    Text("In the Drive picker, press and hold the destination folder. This reveals the folder-selection option; tap it to confirm. A quick tap only opens the folder. If you see the folder's contents instead of the folder row, use ⋮ to go up one level first.", style = MaterialTheme.typography.bodySmall)
                     Text("After you confirm it, easyPass creates the organization files in that folder.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                 }
             }

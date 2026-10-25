@@ -352,7 +352,7 @@ fun OwnerDashboardScreen(
                 )
                 OutlinedTextField(value = folderLink, onValueChange = { folderLink = it }, label = { Text("Migrate Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                 Text(
-                    "When Google Drive opens, press and hold the destination folder until it is selected, then tap Insert. If Drive opened the folder itself, tap ⋮ and go up one level first. A quick tap opens the folder instead of selecting it.",
+                    "In the Drive picker, press and hold the destination folder to reveal its selection option, then tap that option to confirm. A quick tap opens the folder. If you see its contents instead of the folder row, use ⋮ to go up one level first.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
