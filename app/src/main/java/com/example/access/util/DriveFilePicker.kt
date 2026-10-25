@@ -57,13 +57,14 @@ class DriveFilePicker(private val activity: ComponentActivity) {
             .takeIf { it.isNotEmpty() }
     }
 
-    suspend fun selectFolder(account: Account): String? = select(account, folders = true)?.singleOrNull()
+    suspend fun selectFolder(account: Account, folderId: String): String? =
+        select(account, fileIds = listOf(folderId), folders = true)?.singleOrNull()
 
     suspend fun ensureFolderAccess(drive: Drive, account: Account, folderId: String): Boolean =
         ensureDriveFileAccess(
             listOf(folderId),
             canOpen = { withContext(Dispatchers.IO) { canOpen(drive, it) } },
-            select = { selectFolder(account)?.let(::listOf) }
+            select = { selectFolder(account, folderId)?.let(::listOf) }
         )
 
     /** A Drive sharing permission and authorization for this app are separate grants. */
@@ -144,14 +145,14 @@ internal fun drivePickerParameters(
     put(AuthorizationRequest.ResourceParameter.PICKER_OAUTH_TRIGGER, "true")
     put(AuthorizationRequest.ResourceParameter.PICKER_ALLOW_MULTIPLE, (!folders).toString())
     put(AuthorizationRequest.ResourceParameter.PICKER_ALLOW_FOLDER_SELECTION, folders.toString())
+    if (fileIds.isNotEmpty()) {
+        put(AuthorizationRequest.ResourceParameter.PICKER_FILE_IDS, fileIds.joinToString(","))
+    }
     if (folders) {
-        // Supplying the destination ID can navigate inside an empty folder, leaving
-        // nothing to pick. Show folders so the destination itself can be selected.
+        // Restrict the view to folders; the prefilled ID takes the user to the
+        // linked destination. They can navigate up one level to select that folder.
         put(AuthorizationRequest.ResourceParameter.PICKER_MIMETYPES, "application/vnd.google-apps.folder")
     } else {
-        if (fileIds.isNotEmpty()) {
-            put(AuthorizationRequest.ResourceParameter.PICKER_FILE_IDS, fileIds.joinToString(","))
-        }
         if (mimeTypes != null) put(AuthorizationRequest.ResourceParameter.PICKER_MIMETYPES, mimeTypes)
     }
 }

@@ -363,7 +363,7 @@ fun OwnerDashboardScreen(
                             scope.launch {
                                 try {
                                     val selected = account?.account?.let { googleAccount ->
-                                        (context as MainActivity).driveFilePicker.selectFolder(googleAccount)
+                                        (context as MainActivity).driveFilePicker.selectFolder(googleAccount, ext)
                                     }
                                     if (selected == ext && accessCapabilities?.canManageAccess == true && syncManager?.verifyFolderPermissions(ext) == true) {
                                         relocate(context, ext) { onConfigUpdated(it); folderLink = "" }

@@ -8,9 +8,9 @@ import org.junit.Test
 
 class DriveFileAccessTest {
     @Test
-    fun destinationSelectionDoesNotOpenInsideTheEmptyFolder() {
+    fun linkedDestinationFolderIsUsedToLimitPickerResults() {
         val parameters = drivePickerParameters(listOf("empty-destination"), folders = true)
-        assertFalse(parameters.containsKey(ResourceParameter.PICKER_FILE_IDS))
+        assertEquals("empty-destination", parameters[ResourceParameter.PICKER_FILE_IDS])
         assertEquals("application/vnd.google-apps.folder", parameters[ResourceParameter.PICKER_MIMETYPES])
         assertEquals("true", parameters[ResourceParameter.PICKER_ALLOW_FOLDER_SELECTION])
         assertEquals("false", parameters[ResourceParameter.PICKER_ALLOW_MULTIPLE])

@@ -97,24 +97,25 @@ Those actions intentionally replace/delete files in the existing app.
 ### Follow-up: empty destination folder
 
 The first live setup report showed the linked destination opening as a file
-browsing view, asking for an existing file before organization creation. Folder
-selection now uses a single-selection, folder-only view without the destination
-in `PICKER_FILE_IDS`. Setup verifies the returned folder ID matches the pasted
-link, then creates the organization files on confirmation. Relocation and owner
-folder authorization use the same folder selection path. Existing config and
-database authorization keeps its file-ID filter.
+browsing view, asking for an existing file before organization creation. Setup
+now uses the pasted folder ID to limit the single-selection folder view. Since
+the native Picker opens that folder, users go up one level with its breadcrumb,
+select the linked folder itself, and tap Insert. Setup verifies the returned ID
+matches the pasted link, then creates organization files on confirmation.
+Relocation and owner folder authorization use the same linked-folder selection.
+Existing config and database authorization keeps its file-ID filter.
 
-Retest creation in an **empty** folder: tap **Select Folder & Continue**, select
-the destination folder itself, then **Connect to easyPass**. No existing config
-or database should be required. Also cancel once and choose a different folder
-once: neither should create files or advance to confirmation. Reopen the created
-organization and check that normal file access still works.
+Retest creation in an **empty** folder: tap **Select Folder & Continue**. Confirm
+the Picker opens the linked location; use `…` to go up one level, long-press the
+linked folder, and tap **Insert**. Then tap **Connect to easyPass**. No existing
+config or database should be required. Also cancel once and choose a different
+folder once: neither should create files or advance to confirmation. Reopen the
+created organization and check that normal file access still works.
 
-Two additional regression tests verify the folder request cannot open inside
-the destination via a file-ID filter and existing-file authorization retains its
-exact IDs. All 17 unit tests and both debug and signed release APK builds pass
-after this correction. Live confirmation of the changed Google Picker remains
-required; the picker was not visible when the connected phone was inspected.
+Two additional regression tests verify the folder request carries the linked ID
+and existing-file authorization retains its exact IDs. All 17 unit tests and
+both debug and signed release APK builds pass after this correction. Live
+confirmation of the changed Google Picker remains required.
 
 Run from the repository root:
 
