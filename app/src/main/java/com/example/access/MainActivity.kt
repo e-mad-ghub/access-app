@@ -47,6 +47,7 @@ import com.example.access.util.FREE_TIER_MEMBER_LIMIT
 import com.example.access.util.ConfigLoadResult
 import com.example.access.util.DatabaseLoadResult
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.DriveFilePicker
 import com.example.access.util.FeedbackManager
 import com.example.access.util.RevokeOrganizationAccessResult
 import com.example.access.util.SessionManager
@@ -83,6 +84,7 @@ sealed interface ConnectionUiState {
 }
 
 class MainActivity : ComponentActivity() {
+    val driveFilePicker = DriveFilePicker(this)
     private lateinit var sessionManager: SessionManager
     private lateinit var feedbackManager: FeedbackManager
     private lateinit var billingViewModel: BillingViewModel
@@ -212,7 +214,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (hasStartedOnce && wasStopped) {
+        val returnedFromAuthorization = driveFilePicker.consumeActivityReturn()
+        if (hasStartedOnce && wasStopped && !returnedFromAuthorization) {
             configFileId?.let { validateConnection(it) }
         }
         hasStartedOnce = true
@@ -231,7 +234,7 @@ class MainActivity : ComponentActivity() {
     private fun createSyncManager(): DriveSyncManager? {
         val account = GoogleSignIn.getLastSignedInAccount(this)
         return if (account != null) {
-            val cred = GoogleAccountCredential.usingOAuth2(this, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+            val cred = GoogleAccountCredential.usingOAuth2(this, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = account.account }
             DriveSyncManager.createWithCredential(this, cred)
         } else {
             null
@@ -275,6 +278,17 @@ class MainActivity : ComponentActivity() {
                         return@launch
                     }
 
+                val account = GoogleSignIn.getLastSignedInAccount(this@MainActivity)?.account
+                if (account == null || !driveFilePicker.authorize(account) ||
+                    !driveFilePicker.ensureAccess(sync.drive, account, listOf(configId))) {
+                    connectionUiState = ConnectionUiState.Unavailable(
+                        title = "Allow organization files",
+                        message = "Tap Try again and select this organization's config.json in Google Drive. Your saved connection has been kept."
+                    )
+                    syncStatus = SyncStatus.ERROR
+                    return@launch
+                }
+
                 if (!completePendingRevocationCleanup(sync)) {
                     connectionUiState = ConnectionUiState.Unavailable(
                         title = "Connection unavailable",
@@ -311,6 +325,26 @@ class MainActivity : ComponentActivity() {
                             )
                             syncStatus = SyncStatus.ERROR
                             return@launch
+                        }
+                        if (!driveFilePicker.ensureAccess(sync.drive, account, listOf(config.activeDatabaseId))) {
+                            connectionUiState = ConnectionUiState.Unavailable(
+                                title = "Allow organization files",
+                                message = "Tap Try again and select this organization's database.xlsx in Google Drive. Your saved connection has been kept."
+                            )
+                            syncStatus = SyncStatus.ERROR
+                            return@launch
+                        }
+                        // Only the storage owner uses the folder and logo for sharing/replacement.
+                        if (accountEmail.equals(config.storageOwnerEmail, ignoreCase = true)) {
+                            val ownerFiles = listOfNotNull(config.storageFolderId, config.branding.logoFileId)
+                            if (!driveFilePicker.ensureAccess(sync.drive, account, ownerFiles)) {
+                                connectionUiState = ConnectionUiState.Unavailable(
+                                    title = "Allow organization storage",
+                                    message = "Tap Try again and select this organization's storage folder and logo in Google Drive. Your saved connection has been kept."
+                                )
+                                syncStatus = SyncStatus.ERROR
+                                return@launch
+                            }
                         }
                         currentConfig = config
                         scannerViewModel.updateConfig(config)
@@ -461,48 +495,6 @@ class MainActivity : ComponentActivity() {
             .apply()
     }
 
-    private fun mapDownloadFailureToUiState(
-        error: com.example.access.util.FileDownloadResult,
-        missingTitle: String,
-        missingMessage: String,
-        treatMissingAsRemoved: Boolean
-    ): ConnectionUiState {
-        return when (error) {
-            is com.example.access.util.FileDownloadResult.HttpError -> {
-                when (error.statusCode) {
-                    403 -> ConnectionUiState.Unavailable(
-                        title = "Organization access unavailable",
-                        message = "easyPass cannot access this organization through Google Drive. Check sharing access or use a current invitation link."
-                    )
-                    404, 410 -> if (treatMissingAsRemoved) {
-                        ConnectionUiState.ConnectionRemoved(
-                            title = missingTitle,
-                            message = missingMessage
-                        )
-                    } else {
-                        ConnectionUiState.Unavailable(
-                            title = missingTitle,
-                            message = missingMessage
-                        )
-                    }
-                    else -> ConnectionUiState.Unavailable(
-                        title = "Connection unavailable",
-                        message = "easyPass could not verify your organization connection. Check your internet connection and try again."
-                    )
-                }
-            }
-            is com.example.access.util.FileDownloadResult.NetworkError,
-            is com.example.access.util.FileDownloadResult.UnexpectedError -> ConnectionUiState.Unavailable(
-                title = "Connection unavailable",
-                message = "easyPass could not verify your organization connection. Check your internet connection and try again."
-            )
-            is com.example.access.util.FileDownloadResult.Success -> ConnectionUiState.Unavailable(
-                title = "Connection unavailable",
-                message = "easyPass could not verify your organization connection. Check your internet connection and try again."
-            )
-        }
-    }
-
     private suspend fun clearDisconnectedConnection() {
         withContext(Dispatchers.IO) {
             AppDatabase.getDatabase(this@MainActivity).memberDao().deleteAllMembers()
@@ -575,6 +567,53 @@ class MainActivity : ComponentActivity() {
         unregisterReceiver(screenOffReceiver)
     }
 }
+
+internal fun mapDownloadFailureToUiState(
+    error: com.example.access.util.FileDownloadResult,
+    missingTitle: String,
+    missingMessage: String,
+    treatMissingAsRemoved: Boolean
+): ConnectionUiState {
+    return when (error) {
+        is com.example.access.util.FileDownloadResult.HttpError -> {
+            when (error.statusCode) {
+                403 -> ConnectionUiState.Unavailable(
+                    title = "Organization access unavailable",
+                    message = "easyPass cannot access this organization through Google Drive. Check sharing access or use a current invitation link."
+                )
+                404 -> ConnectionUiState.Unavailable(
+                    title = "Allow organization files",
+                    message = "Google Drive could not open this file. Try again to allow access, or ask your Director for a current invitation. Your saved connection has been kept."
+                )
+                410 -> if (treatMissingAsRemoved) {
+                    ConnectionUiState.ConnectionRemoved(
+                        title = missingTitle,
+                        message = missingMessage
+                    )
+                } else {
+                    ConnectionUiState.Unavailable(
+                        title = missingTitle,
+                        message = missingMessage
+                    )
+                }
+                else -> ConnectionUiState.Unavailable(
+                    title = "Connection unavailable",
+                    message = "easyPass could not verify your organization connection. Check your internet connection and try again."
+                )
+            }
+        }
+        is com.example.access.util.FileDownloadResult.NetworkError,
+        is com.example.access.util.FileDownloadResult.UnexpectedError -> ConnectionUiState.Unavailable(
+            title = "Connection unavailable",
+            message = "easyPass could not verify your organization connection. Check your internet connection and try again."
+        )
+        is com.example.access.util.FileDownloadResult.Success -> ConnectionUiState.Unavailable(
+            title = "Connection unavailable",
+            message = "easyPass could not verify your organization connection. Check your internet connection and try again."
+        )
+    }
+}
+
 
 @Composable
 private fun ConnectionStateScreen(

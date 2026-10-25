@@ -102,7 +102,7 @@ fun PasswordElevationDialog(
                 Toast.makeText(context, "Google sign-in is required to write organization changes to Drive.", Toast.LENGTH_LONG).show()
                 val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                     .requestEmail()
-                    .requestScopes(Scope(DriveScopes.DRIVE))
+                    .requestScopes(Scope(DriveScopes.DRIVE_FILE))
                     .build()
                 signInLauncher.launch(GoogleSignIn.getClient(context, gso).signInIntent)
             } else if (!sessionManager.canCurrentEmailUseRole(role)) {

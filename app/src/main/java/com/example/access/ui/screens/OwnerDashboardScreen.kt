@@ -1,6 +1,7 @@
 package com.example.access.ui.screens
 
 import com.example.access.BillingViewModel
+import com.example.access.MainActivity
 import android.content.Context
 import android.app.Activity
 import android.content.ClipData
@@ -123,7 +124,7 @@ fun OwnerDashboardScreen(
     val account = remember { GoogleSignIn.getLastSignedInAccount(context) }
     val syncManager = remember(account) {
         account?.let {
-            val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = it.account }
+            val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = it.account }
             DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
         }
     }
@@ -360,11 +361,19 @@ fun OwnerDashboardScreen(
                         if (ext != null) {
                             isBusy = true
                             scope.launch {
-                                if (accessCapabilities?.canManageAccess == true && syncManager?.verifyFolderPermissions(ext) == true) {
-                                    relocate(context, ext) { onConfigUpdated(it); isBusy = false; folderLink = "" }
-                                } else {
+                                try {
+                                    val selected = account?.account?.let { googleAccount ->
+                                        (context as MainActivity).driveFilePicker.select(googleAccount, listOf(ext), folders = true)
+                                    }
+                                    if (selected?.contains(ext) == true && accessCapabilities?.canManageAccess == true && syncManager?.verifyFolderPermissions(ext) == true) {
+                                        relocate(context, ext) { onConfigUpdated(it); folderLink = "" }
+                                    } else {
+                                        Toast.makeText(context, "Select the destination folder and confirm storage-owner access to continue.", Toast.LENGTH_LONG).show()
+                                    }
+                                } catch (error: Exception) {
+                                    Toast.makeText(context, "Could not open the destination folder. Try again.", Toast.LENGTH_LONG).show()
+                                } finally {
                                     isBusy = false
-                                    Toast.makeText(context, accessCapabilities?.restrictionMessage ?: "Storage-owner access is required.", Toast.LENGTH_LONG).show()
                                 }
                             }
                         }
@@ -554,16 +563,31 @@ fun OwnerDashboardScreen(
                 val directorHash = SecurityUtils.hashPassword(newDirectorPassword)
                 isBusy = true
                 scope.launch {
-                    val result = syncManager?.revokeAllUsersAccess(
-                        oldConfigId = configFileId,
-                        currentConfig = config,
-                        newManagerHash = managerHash,
-                        newDirectorHash = directorHash,
-                        initiatingDirectorEmail = signedInEmail.orEmpty()
-                    ) ?: RevokeOrganizationAccessResult.Failure("Google sign-in is required for Director storage actions.")
-                    isBusy = false
-                    showRevokeDialog = false
-                    onRevokeAllUsersPermission(result)
+                    try {
+                        // Replacement storage is created beside the current folder. Authorize
+                        // that parent explicitly for organizations created before drive.file.
+                        val storageFolderId = config.storageFolderId ?: syncManager?.getParentId(configFileId)
+                        val parentId = storageFolderId?.let { syncManager?.getParentId(it) }
+                        val googleAccount = account?.account
+                        if (parentId == null || googleAccount == null || syncManager == null ||
+                            !(context as MainActivity).driveFilePicker.ensureAccess(syncManager.drive, googleAccount, listOf(parentId))) {
+                            Toast.makeText(context, "Allow access to the storage location before replacing organization files.", Toast.LENGTH_LONG).show()
+                            return@launch
+                        }
+                        val result = syncManager.revokeAllUsersAccess(
+                            oldConfigId = configFileId,
+                            currentConfig = config,
+                            newManagerHash = managerHash,
+                            newDirectorHash = directorHash,
+                            initiatingDirectorEmail = signedInEmail.orEmpty()
+                        )
+                        showRevokeDialog = false
+                        onRevokeAllUsersPermission(result)
+                    } catch (error: Exception) {
+                        Toast.makeText(context, "Could not authorize organization storage. Try again.", Toast.LENGTH_LONG).show()
+                    } finally {
+                        isBusy = false
+                    }
                 }
             }
         )
@@ -1171,20 +1195,19 @@ private fun extractFolderIdFromLink(link: String): String? {
     return try { val r = Regex("folders/([^/?]+)"); r.find(link)?.groupValues?.get(1) } catch (e: Exception) { null }
 }
 
-private fun relocate(context: Context, newParentId: String, onSuccess: (Config) -> Unit) {
+private suspend fun relocate(context: Context, newParentId: String, onSuccess: (Config) -> Unit) {
     val account = GoogleSignIn.getLastSignedInAccount(context) ?: return
-    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = account.account }
     val sync = DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
     val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
-    (context as androidx.activity.ComponentActivity).lifecycleScope.launch {
-        val nextId = sync.relocateFolder(configId, newParentId)
-        if (nextId != null) { context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).edit().putString("config_file_id", nextId).apply(); sync.downloadConfig(nextId)?.let { onSuccess(it) } }
-    }
+    val nextId = sync.relocateFolder(configId, newParentId)
+    if (nextId != null) { context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).edit().putString("config_file_id", nextId).apply(); sync.downloadConfig(nextId)?.let { onSuccess(it) } }
+    else Toast.makeText(context, "easyPass could not relocate organization storage. Check Drive access and try again.", Toast.LENGTH_LONG).show()
 }
 
 private fun updateConfigOnDrive(context: Context, config: Config, onSuccess: (Config) -> Unit) {
     val account = GoogleSignIn.getLastSignedInAccount(context) ?: return
-    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = account.account }
     val sync = DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
     val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
     (context as androidx.activity.ComponentActivity).lifecycleScope.launch {
@@ -1198,7 +1221,7 @@ private fun updateConfigOnDrive(context: Context, config: Config, onSuccess: (Co
 
 private suspend fun uploadCroppedLogo(context: Context, bitmap: Bitmap, onSuccess: (Config) -> Unit, config: Config) {
     val account = GoogleSignIn.getLastSignedInAccount(context) ?: return
-    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = account.account }
+    val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = account.account }
     val sync = DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
     val configId = context.getSharedPreferences("easypass_prefs", Context.MODE_PRIVATE).getString("config_file_id", null) ?: return
     val file = File(context.cacheDir, "logo_cropped.png")

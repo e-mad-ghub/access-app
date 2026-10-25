@@ -11,6 +11,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,6 +44,7 @@ import com.example.access.ui.theme.AccessTheme
 import com.example.access.util.ConfigLoadResult
 import com.example.access.util.DatabaseLoadResult
 import com.example.access.util.DriveSyncManager
+import com.example.access.util.DriveFilePicker
 import com.example.access.util.FileDownloadResult
 import com.example.access.util.SecurityUtils
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -55,6 +58,8 @@ import com.google.api.services.drive.DriveScopes
 import kotlinx.coroutines.launch
 
 class SetupWizardActivity : ComponentActivity() {
+
+    private val driveFilePicker = DriveFilePicker(this)
 
     enum class SetupStep { SIGN_IN_OPTION, PASSWORDS, PASTE_LINK, CONFIRMATION, RESTORE_FOUND, ENTER_JOIN_PIN }
 
@@ -257,7 +262,7 @@ class SetupWizardActivity : ComponentActivity() {
             
             Button(
                 onClick = {
-                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().requestScopes(Scope(DriveScopes.DRIVE)).build()
+                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().requestScopes(Scope(DriveScopes.DRIVE_FILE)).build()
                     signInLauncher.launch(GoogleSignIn.getClient(this@SetupWizardActivity, gso).signInIntent)
                 }, 
                 modifier = Modifier.fillMaxWidth().height(60.dp),
@@ -412,7 +417,7 @@ class SetupWizardActivity : ComponentActivity() {
                         if (googleAccount == null) {
                             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                                 .requestEmail()
-                                .requestScopes(Scope(DriveScopes.DRIVE))
+                                .requestScopes(Scope(DriveScopes.DRIVE_FILE))
                                 .build()
                             signInLauncher.launch(GoogleSignIn.getClient(this@SetupWizardActivity, gso).signInIntent)
                         } else {
@@ -448,7 +453,13 @@ class SetupWizardActivity : ComponentActivity() {
             ownerPassConfirm == ownerPass &&
             !keysMatchEachOther
 
-        Column {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Text("Already have an organization?", fontWeight = FontWeight.Bold)
+            Text("Choose its existing config.json in Google Drive to restore it. You do not need to create new passwords.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { chooseExistingOrganization() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Restore existing organization")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             Text("Security Profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text("Set private keys to authorize management actions. These keys stay separate from your Google account.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(modifier = Modifier.height(32.dp))
@@ -544,6 +555,11 @@ class SetupWizardActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             try {
                                 val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
+                                val selected = driveFilePicker.select(googleAccount!!.account!!, listOf(id), folders = true)
+                                if (selected?.contains(id) != true) {
+                                    errorMessage = "Folder selection cancelled. Select the folder from your link to continue."
+                                    return@launch
+                                }
                                 if (syncManager.verifyFolderPermissions(id)) {
                                     selectedFolderId = id
                                     selectedFolderName = syncManager.getDriveItemName(id)
@@ -603,6 +619,7 @@ class SetupWizardActivity : ComponentActivity() {
             Text("easyPass Hub Detected", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
             Spacer(modifier = Modifier.height(48.dp))
             Button(onClick = { isBusy = true; finalizeRestore(existingConfigFoundId!!) }, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) { Text("Restore This Hub", fontWeight = FontWeight.Black) }
+            TextButton(onClick = { chooseExistingOrganization() }) { Text("Choose a different organization") }
             TextButton(onClick = { currentStep = SetupStep.PASSWORDS; existingConfigFoundId = null }) { Text("Create New Instead", fontWeight = FontWeight.Bold) }
         }
     }
@@ -614,7 +631,7 @@ class SetupWizardActivity : ComponentActivity() {
 
     private fun getCredential(): GoogleAccountCredential {
         val account = googleAccount!!
-        val credential = GoogleAccountCredential.usingOAuth2(this, listOf(DriveScopes.DRIVE))
+        val credential = GoogleAccountCredential.usingOAuth2(this, listOf(DriveScopes.DRIVE_FILE))
         credential.selectedAccount = account.account
         return credential
     }
@@ -624,10 +641,36 @@ class SetupWizardActivity : ComponentActivity() {
         isSearching = true
         lifecycleScope.launch {
             try {
+                if (!driveFilePicker.authorize(googleAccount!!.account!!)) {
+                    errorMessage = "Google Drive access was cancelled. Sign in again to continue."
+                    currentStep = SetupStep.SIGN_IN_OPTION
+                    return@launch
+                }
                 val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
                 existingConfigFoundId = syncManager.findExistingConfigId()
                 currentStep = if (existingConfigFoundId != null) SetupStep.RESTORE_FOUND else SetupStep.PASSWORDS
             } catch (e: Exception) { errorMessage = "Cloud Error."; currentStep = SetupStep.SIGN_IN_OPTION } finally { isSearching = false }
+        }
+    }
+
+    private fun chooseExistingOrganization() {
+        lifecycleScope.launch {
+            isBusy = true
+            var selectedConfigId: String? = null
+            try {
+                val account = googleAccount?.account ?: return@launch
+                val selected = driveFilePicker.select(account, mimeTypes = "application/json")
+                if (selected?.size == 1) {
+                    selectedConfigId = selected.single()
+                } else if (selected != null) {
+                    errorMessage = "Choose one organization's config.json to restore."
+                }
+            } catch (error: Exception) {
+                errorMessage = "Could not open Google Drive. Check your connection and try again."
+            } finally {
+                isBusy = false
+            }
+            selectedConfigId?.let(::finalizeRestore)
         }
     }
 
@@ -652,6 +695,11 @@ class SetupWizardActivity : ComponentActivity() {
                     return@launch
                 }
                 val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
+                if (!driveFilePicker.authorize(account.account!!) ||
+                    !driveFilePicker.ensureAccess(syncManager.drive, account.account!!, listOf(invitePayload.configId))) {
+                    errorMessage = "Select this organization's config.json in Google Drive to connect. Your invitation is still valid."
+                    return@launch
+                }
                 when (val configResult = syncManager.downloadConfigResult(invitePayload.configId)) {
                     is ConfigLoadResult.Success -> {
                         val config = configResult.config
@@ -672,6 +720,10 @@ class SetupWizardActivity : ComponentActivity() {
                         if (databaseId.isBlank()) {
                             errorMessage = "Organization database unavailable. Use a current invitation link."
                         } else {
+                            if (!driveFilePicker.ensureAccess(syncManager.drive, account.account!!, listOf(databaseId))) {
+                                errorMessage = "Select this organization's database.xlsx in Google Drive to finish connecting."
+                                return@launch
+                            }
                             when (syncManager.downloadAndParseExcelResult(databaseId, config.isPro)) {
                                 is DatabaseLoadResult.Success -> {
                                     getSharedPreferences("easypass_prefs", MODE_PRIVATE).edit().putString("config_file_id", invitePayload.configId).apply()

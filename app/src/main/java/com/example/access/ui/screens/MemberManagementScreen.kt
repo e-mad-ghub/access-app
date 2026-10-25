@@ -150,7 +150,7 @@ fun MemberManagementScreen(
             Toast.makeText(context, "Google sign-in is required to update the shared database.", Toast.LENGTH_LONG).show()
             return null
         }
-        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply {
+        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply {
             selectedAccount = account.account
         }
         return DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
@@ -187,7 +187,7 @@ fun MemberManagementScreen(
                     db.memberDao().updateStatus(member.memberId, nextStatus)
                     val account = GoogleSignIn.getLastSignedInAccount(context)
                     if (account != null) {
-                        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply {
+                        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply {
                             selectedAccount = account.account
                         }
                         DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive)
@@ -363,7 +363,7 @@ fun MemberManagementScreen(
                     db.memberDao().insertMember(newMember)
                     val acc = GoogleSignIn.getLastSignedInAccount(context)
                     if (acc != null) {
-                        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
+                        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = acc.account }
                         DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
                     }
                 }
@@ -382,7 +382,7 @@ fun MemberManagementScreen(
                     db.memberDao().insertMember(Member(m.memberId, name, m.status, m.qrCodeHash, Instant.now().toString(), p, e, a, nt))
                     val acc = GoogleSignIn.getLastSignedInAccount(context)
                     if (acc != null) {
-                        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
+                        val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = acc.account }
                         DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
                     }
                 }
@@ -403,7 +403,7 @@ fun MemberManagementScreen(
                         db.memberDao().deleteMember(id)
                         val acc = GoogleSignIn.getLastSignedInAccount(context)
                         if (acc != null) {
-                            val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE)).apply { selectedAccount = acc.account }
+                            val cred = GoogleAccountCredential.usingOAuth2(context, listOf(DriveScopes.DRIVE_FILE)).apply { selectedAccount = acc.account }
                             DriveSyncManager(context, DriveSyncManager.createWithCredential(context, cred).drive).exportRoomToExcelAndUpload(config.activeDatabaseId, config.isPro)
                         }
                     }

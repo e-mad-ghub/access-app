@@ -55,7 +55,7 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
                 
                 val cred = GoogleAccountCredential.usingOAuth2(
                     getApplication(),
-                    listOf(DriveScopes.DRIVE)
+                    listOf(DriveScopes.DRIVE_FILE)
                 ).apply { selectedAccount = account.account }
                 
                 val sync = DriveSyncManager.createWithCredential(getApplication(), cred)
