@@ -534,9 +534,17 @@ class SetupWizardActivity : ComponentActivity() {
         Column {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
             Text("Data Storage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Paste the destination folder link. In Google Drive, use the … breadcrumb to go up one level, press and hold that folder, then tap Insert. The app creates the organization files afterward.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Paste the destination folder link.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(Modifier.height(32.dp))
             OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Folder Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), placeholder = { Text("https://drive.google.com/...") })
+            Spacer(Modifier.height(12.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = RoundedCornerShape(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Google requires you to confirm the folder", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("When Drive opens:\n1. If you are inside the destination folder, tap ⋮ and go up one level.\n2. Press and hold the destination folder until it is selected. A quick tap opens it.\n3. Tap Insert to give easyPass access.", style = MaterialTheme.typography.bodySmall)
+                    Text("After you confirm it, easyPass creates the organization files in that folder.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                }
+            }
             Spacer(modifier = Modifier.height(24.dp))
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDFA)), shape = RoundedCornerShape(20.dp)) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
