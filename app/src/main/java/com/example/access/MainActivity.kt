@@ -247,9 +247,12 @@ class MainActivity : ComponentActivity() {
 
     private fun validateConnection(configId: String) {
         if (isValidatingConnection) return
+        val keepConnectedScreen = connectionUiState is ConnectionUiState.Connected
         scannerViewModel.setConnectionVerified(false)
         sessionManager.setAuthorizedEmail(null)
-        connectionUiState = ConnectionUiState.Validating
+        if (!keepConnectedScreen) {
+            connectionUiState = ConnectionUiState.Validating
+        }
         syncStatus = SyncStatus.SYNCING
         syncMessage = null
         lifecycleScope.launch {
@@ -368,7 +371,9 @@ class MainActivity : ComponentActivity() {
                                     null
                                 }
                                 syncStatus = SyncStatus.HEALTHY
-                                sessionManager.resetSession()
+                                if (!config.canEmailUseRole(accountEmail, sessionManager.getActiveRole())) {
+                                    sessionManager.resetSession()
+                                }
                                 scannerViewModel.setConnectionVerified(true)
                                 connectionUiState = ConnectionUiState.Connected
                             }
