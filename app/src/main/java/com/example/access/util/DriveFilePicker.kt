@@ -57,12 +57,21 @@ class DriveFilePicker(private val activity: ComponentActivity) {
             .takeIf { it.isNotEmpty() }
     }
 
+    suspend fun selectFolder(account: Account): String? = select(account, folders = true)?.singleOrNull()
+
+    suspend fun ensureFolderAccess(drive: Drive, account: Account, folderId: String): Boolean =
+        ensureDriveFileAccess(
+            listOf(folderId),
+            canOpen = { withContext(Dispatchers.IO) { canOpen(drive, it) } },
+            select = { selectFolder(account)?.let(::listOf) }
+        )
+
     /** A Drive sharing permission and authorization for this app are separate grants. */
     suspend fun ensureAccess(drive: Drive, account: Account, fileIds: List<String>): Boolean {
         return ensureDriveFileAccess(
             fileIds,
             canOpen = { withContext(Dispatchers.IO) { canOpen(drive, it) } },
-            select = { select(account, it, folders = true) }
+            select = { select(account, it) }
         )
     }
 
@@ -97,14 +106,8 @@ class DriveFilePicker(private val activity: ComponentActivity) {
             .setOptOutIncludingGrantedScopes(true)
         if (pick) {
             builder.setPrompt(AuthorizationRequest.Prompt.CONSENT)
-                .addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_OAUTH_TRIGGER, "true")
-                .addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_ALLOW_MULTIPLE, "true")
-                .addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_ALLOW_FOLDER_SELECTION, folders.toString())
-            if (fileIds.isNotEmpty()) {
-                builder.addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_FILE_IDS, fileIds.joinToString(","))
-            }
-            if (mimeTypes != null) {
-                builder.addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_MIMETYPES, mimeTypes)
+            for ((parameter, value) in drivePickerParameters(fileIds, folders, mimeTypes)) {
+                builder.addResourceParameter(parameter, value)
             }
         }
         client.authorize(builder.build())
@@ -129,6 +132,27 @@ class DriveFilePicker(private val activity: ComponentActivity) {
                     continuation.resumeWithException(error)
                 }
             }
+    }
+}
+
+/** A destination folder is selected from its parent, never opened as a file-ID view. */
+internal fun drivePickerParameters(
+    fileIds: List<String>,
+    folders: Boolean,
+    mimeTypes: String? = null
+): Map<AuthorizationRequest.ResourceParameter, String> = buildMap {
+    put(AuthorizationRequest.ResourceParameter.PICKER_OAUTH_TRIGGER, "true")
+    put(AuthorizationRequest.ResourceParameter.PICKER_ALLOW_MULTIPLE, (!folders).toString())
+    put(AuthorizationRequest.ResourceParameter.PICKER_ALLOW_FOLDER_SELECTION, folders.toString())
+    if (folders) {
+        // Supplying the destination ID can navigate inside an empty folder, leaving
+        // nothing to pick. Show folders so the destination itself can be selected.
+        put(AuthorizationRequest.ResourceParameter.PICKER_MIMETYPES, "application/vnd.google-apps.folder")
+    } else {
+        if (fileIds.isNotEmpty()) {
+            put(AuthorizationRequest.ResourceParameter.PICKER_FILE_IDS, fileIds.joinToString(","))
+        }
+        if (mimeTypes != null) put(AuthorizationRequest.ResourceParameter.PICKER_MIMETYPES, mimeTypes)
     }
 }
 

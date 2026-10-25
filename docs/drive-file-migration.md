@@ -94,6 +94,28 @@ Those actions intentionally replace/delete files in the existing app.
 
 ## Automated validation
 
+### Follow-up: empty destination folder
+
+The first live setup report showed the linked destination opening as a file
+browsing view, asking for an existing file before organization creation. Folder
+selection now uses a single-selection, folder-only view without the destination
+in `PICKER_FILE_IDS`. Setup verifies the returned folder ID matches the pasted
+link, then creates the organization files on confirmation. Relocation and owner
+folder authorization use the same folder selection path. Existing config and
+database authorization keeps its file-ID filter.
+
+Retest creation in an **empty** folder: tap **Select Folder & Continue**, select
+the destination folder itself, then **Connect to easyPass**. No existing config
+or database should be required. Also cancel once and choose a different folder
+once: neither should create files or advance to confirmation. Reopen the created
+organization and check that normal file access still works.
+
+Two additional regression tests verify the folder request cannot open inside
+the destination via a file-ID filter and existing-file authorization retains its
+exact IDs. All 17 unit tests and both debug and signed release APK builds pass
+after this correction. Live confirmation of the changed Google Picker remains
+required; the picker was not visible when the connected phone was inspected.
+
 Run from the repository root:
 
 ```bash
@@ -107,7 +129,7 @@ cancellation, wrong/partial selections, quota/network errors, parsing Picker
 results, and the distinction between HTTP 404 and confirmed-gone HTTP 410. They
 do not simulate Google's consent server or prove cross-account Drive grants.
 
-Results on 25 October 2026:
+Initial migration results on 25 October 2026 (before the folder-selection correction above):
 
 - `testDebugUnitTest`: 15 tests passed, including 14 new focused regression tests.
 - `assembleDebug`: passed; APK at

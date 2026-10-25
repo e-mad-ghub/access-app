@@ -363,9 +363,9 @@ fun OwnerDashboardScreen(
                             scope.launch {
                                 try {
                                     val selected = account?.account?.let { googleAccount ->
-                                        (context as MainActivity).driveFilePicker.select(googleAccount, listOf(ext), folders = true)
+                                        (context as MainActivity).driveFilePicker.selectFolder(googleAccount)
                                     }
-                                    if (selected?.contains(ext) == true && accessCapabilities?.canManageAccess == true && syncManager?.verifyFolderPermissions(ext) == true) {
+                                    if (selected == ext && accessCapabilities?.canManageAccess == true && syncManager?.verifyFolderPermissions(ext) == true) {
                                         relocate(context, ext) { onConfigUpdated(it); folderLink = "" }
                                     } else {
                                         Toast.makeText(context, "Select the destination folder and confirm storage-owner access to continue.", Toast.LENGTH_LONG).show()
@@ -570,7 +570,7 @@ fun OwnerDashboardScreen(
                         val parentId = storageFolderId?.let { syncManager?.getParentId(it) }
                         val googleAccount = account?.account
                         if (parentId == null || googleAccount == null || syncManager == null ||
-                            !(context as MainActivity).driveFilePicker.ensureAccess(syncManager.drive, googleAccount, listOf(parentId))) {
+                            !(context as MainActivity).driveFilePicker.ensureFolderAccess(syncManager.drive, googleAccount, parentId)) {
                             Toast.makeText(context, "Allow access to the storage location before replacing organization files.", Toast.LENGTH_LONG).show()
                             return@launch
                         }

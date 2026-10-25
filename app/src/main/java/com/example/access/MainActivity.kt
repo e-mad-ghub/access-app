@@ -336,8 +336,10 @@ class MainActivity : ComponentActivity() {
                         }
                         // Only the storage owner uses the folder and logo for sharing/replacement.
                         if (accountEmail.equals(config.storageOwnerEmail, ignoreCase = true)) {
-                            val ownerFiles = listOfNotNull(config.storageFolderId, config.branding.logoFileId)
-                            if (!driveFilePicker.ensureAccess(sync.drive, account, ownerFiles)) {
+                            val folderAllowed = config.storageFolderId?.let {
+                                driveFilePicker.ensureFolderAccess(sync.drive, account, it)
+                            } ?: true
+                            if (!folderAllowed || !driveFilePicker.ensureAccess(sync.drive, account, listOfNotNull(config.branding.logoFileId))) {
                                 connectionUiState = ConnectionUiState.Unavailable(
                                     title = "Allow organization storage",
                                     message = "Tap Try again and select this organization's storage folder and logo in Google Drive. Your saved connection has been kept."

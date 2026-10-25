@@ -534,7 +534,7 @@ class SetupWizardActivity : ComponentActivity() {
         Column {
             IconButton(onClick = { currentStep = SetupStep.PASSWORDS }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
             Text("Data Storage", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text("Choose the Google Drive folder that will contain this organization's private easyPass storage. You stay in control of the data in your own Google Drive.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("Paste the destination folder link, then select that folder in Google Drive. The app creates the organization files afterward; the folder can be empty.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(Modifier.height(32.dp))
             OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Folder Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), placeholder = { Text("https://drive.google.com/...") })
             Spacer(modifier = Modifier.height(24.dp))
@@ -555,9 +555,10 @@ class SetupWizardActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             try {
                                 val syncManager = DriveSyncManager.createWithCredential(this@SetupWizardActivity, getCredential())
-                                val selected = driveFilePicker.select(googleAccount!!.account!!, listOf(id), folders = true)
-                                if (selected?.contains(id) != true) {
-                                    errorMessage = "Folder selection cancelled. Select the folder from your link to continue."
+                                val selected = driveFilePicker.selectFolder(googleAccount!!.account!!)
+                                if (selected != id) {
+                                    errorMessage = if (selected == null) "Folder selection cancelled. Select the destination folder itself, not a file inside it."
+                                        else "The selected folder does not match your link. Select the same destination folder to continue."
                                     return@launch
                                 }
                                 if (syncManager.verifyFolderPermissions(id)) {
@@ -574,7 +575,7 @@ class SetupWizardActivity : ComponentActivity() {
                 shape = RoundedCornerShape(20.dp)
             ) {
                 if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                else Text("Verify & Continue", fontWeight = FontWeight.Black)
+                else Text("Select Folder & Continue", fontWeight = FontWeight.Black)
             }
         }
     }

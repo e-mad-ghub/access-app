@@ -1,11 +1,28 @@
 package com.example.access.util
 
+import com.google.android.gms.auth.api.identity.AuthorizationRequest.ResourceParameter
 import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
 class DriveFileAccessTest {
+    @Test
+    fun destinationSelectionDoesNotOpenInsideTheEmptyFolder() {
+        val parameters = drivePickerParameters(listOf("empty-destination"), folders = true)
+        assertFalse(parameters.containsKey(ResourceParameter.PICKER_FILE_IDS))
+        assertEquals("application/vnd.google-apps.folder", parameters[ResourceParameter.PICKER_MIMETYPES])
+        assertEquals("true", parameters[ResourceParameter.PICKER_ALLOW_FOLDER_SELECTION])
+        assertEquals("false", parameters[ResourceParameter.PICKER_ALLOW_MULTIPLE])
+    }
+
+    @Test
+    fun existingFileAuthorizationKeepsItsExactFileIds() {
+        val parameters = drivePickerParameters(listOf("config", "database"), folders = false)
+        assertEquals("config,database", parameters[ResourceParameter.PICKER_FILE_IDS])
+        assertEquals("false", parameters[ResourceParameter.PICKER_ALLOW_FOLDER_SELECTION])
+    }
+
     @Test
     fun accessibleOrganizationDoesNotOpenPicker() = runBlocking {
         assertTrue(ensureDriveFileAccess(listOf("config", "database"), { true }) {
