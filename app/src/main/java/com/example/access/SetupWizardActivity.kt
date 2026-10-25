@@ -541,14 +541,6 @@ class SetupWizardActivity : ComponentActivity() {
             Text("Paste the destination folder link.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(Modifier.height(32.dp))
             OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Folder Link") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), placeholder = { Text("https://drive.google.com/...") })
-            Spacer(Modifier.height(12.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = RoundedCornerShape(16.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Google requires you to confirm the folder", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text("In the Drive picker, press and hold the destination folder. This reveals the folder-selection option; tap it to confirm. A quick tap only opens the folder. If you see the folder's contents instead of the folder row, use ⋮ to go up one level first.", style = MaterialTheme.typography.bodySmall)
-                    Text("After you confirm it, easyPass creates the organization files in that folder.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                }
-            }
             Spacer(modifier = Modifier.height(24.dp))
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDFA)), shape = RoundedCornerShape(20.dp)) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
@@ -557,7 +549,18 @@ class SetupWizardActivity : ComponentActivity() {
                     Text("easyPass creates one private folder named EasyPass-configs inside the folder you choose. The shared database stays in your Drive, while the app keeps only the needed local copy on the device.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF006064))
                 }
             }
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(16.dp)) {
+                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Default.TouchApp, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("In Google Drive, press and hold the folder", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("Tap the selection option that appears. A quick tap only opens the folder. If you see its contents, go up one level with ⋮ first.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = {
                     val id = extractFolderIdFromLink(link)

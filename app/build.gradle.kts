@@ -25,8 +25,8 @@ android {
         applicationId = "com.easyapps.easypass"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "1.1.5"
+        versionCode = 18
+        versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
