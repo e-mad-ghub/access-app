@@ -61,7 +61,7 @@ class SetupWizardActivity : ComponentActivity() {
 
     private val driveFilePicker = DriveFilePicker(this)
 
-    enum class SetupStep { SIGN_IN_OPTION, PASSWORDS, PASTE_LINK, CONFIRMATION, RESTORE_FOUND, ENTER_JOIN_PIN }
+    enum class SetupStep { SIGN_IN_OPTION, PASSWORDS, PASTE_LINK, CONFIRMATION, RESTORE_FOUND, ENTER_JOIN_ACCESS_CODE }
 
     private var googleAccount by mutableStateOf<GoogleSignInAccount?>(null)
     private var currentStep by mutableStateOf(SetupStep.SIGN_IN_OPTION)
@@ -107,7 +107,7 @@ class SetupWizardActivity : ComponentActivity() {
         showSetupOrientation = !hasSeenSetupOrientation(this)
 
         if (encryptedInviteKey != null) {
-            currentStep = SetupStep.ENTER_JOIN_PIN
+            currentStep = SetupStep.ENTER_JOIN_ACCESS_CODE
         } else if (googleAccount != null) {
             if (showSetupOrientation) {
                 runRestoreCheckAfterOrientation = true
@@ -190,7 +190,7 @@ class SetupWizardActivity : ComponentActivity() {
                         SetupStep.PASTE_LINK -> PasteLinkStep()
                         SetupStep.CONFIRMATION -> ConfirmationStep()
                         SetupStep.RESTORE_FOUND -> RestoreFoundStep()
-                        SetupStep.ENTER_JOIN_PIN -> EnterJoinPinStep()
+                        SetupStep.ENTER_JOIN_ACCESS_CODE -> EnterJoinAccessCodeStep()
                     }
                 }
             }
@@ -327,7 +327,7 @@ class SetupWizardActivity : ComponentActivity() {
                         val key = android.net.Uri.parse(manualLink).getQueryParameter("key")
                         if (key != null) {
                             encryptedInviteKey = key
-                            currentStep = SetupStep.ENTER_JOIN_PIN
+                            currentStep = SetupStep.ENTER_JOIN_ACCESS_CODE
                             showManualJoin = false
                         }
                     }) { Text("Continue") }
@@ -338,28 +338,17 @@ class SetupWizardActivity : ComponentActivity() {
     }
 
     @Composable
-    fun EnterJoinPinStep() {
+    fun EnterJoinAccessCodeStep() {
         var secretInput by remember { mutableStateOf("") }
         var isVerifying by remember { mutableStateOf(false) }
         var revealAccessCode by remember { mutableStateOf(false) }
-        val inviteCredentialType = remember(encryptedInviteKey) {
-            encryptedInviteKey?.let(SecurityUtils::getInviteCredentialType)
-                ?: SecurityUtils.InviteCredentialType.PIN
-        }
-        val usesAccessCode = inviteCredentialType == SecurityUtils.InviteCredentialType.ACCESS_CODE
         val normalizedAccessCode = remember(secretInput) { SecurityUtils.normalizeInviteAccessCode(secretInput) }
-        val normalizedPin = remember(secretInput) { secretInput.filter(Char::isDigit) }
-        val canUnlock = if (usesAccessCode) {
-            SecurityUtils.isValidInviteAccessCode(secretInput)
-        } else {
-            normalizedPin.length == 4
-        }
+        val canUnlock = SecurityUtils.isValidInviteAccessCode(secretInput)
 
         Column {
             Text("Access Unlock", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text(
-                if (usesAccessCode) "Enter the invitation access code provided with your link."
-                else "Enter the 4-digit PIN provided with your link.",
+                "Enter the 16-character invitation access code provided with your link.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
@@ -367,42 +356,24 @@ class SetupWizardActivity : ComponentActivity() {
             OutlinedTextField(
                 value = secretInput,
                 onValueChange = {
-                    secretInput = if (usesAccessCode) {
-                        SecurityUtils.formatInviteAccessCode(
-                            SecurityUtils.normalizeInviteAccessCode(it).take(16)
-                        )
-                    } else {
-                        it.filter(Char::isDigit).take(4)
-                    }
+                    secretInput = SecurityUtils.formatInviteAccessCode(
+                        SecurityUtils.normalizeInviteAccessCode(it).take(16)
+                    )
                 },
-                label = { Text(if (usesAccessCode) "Invitation access code" else "Join PIN") },
-                placeholder = {
-                    if (usesAccessCode) {
-                        Text("ABCD-EFGH-JKLM-NPQR")
-                    }
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = if (usesAccessCode) KeyboardType.Password else KeyboardType.NumberPassword
-                ),
-                visualTransformation = when {
-                    !usesAccessCode -> PasswordVisualTransformation()
-                    revealAccessCode -> VisualTransformation.None
-                    else -> PasswordVisualTransformation()
-                },
+                label = { Text("Invitation access code") },
+                placeholder = { Text("ABCD-EFGH-JKLM-NPQR") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = if (revealAccessCode) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
-                    if (usesAccessCode) {
-                        IconButton(onClick = { revealAccessCode = !revealAccessCode }) {
-                            Icon(
-                                if (revealAccessCode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = if (revealAccessCode) "Hide access code" else "Show access code"
-                            )
-                        }
+                    IconButton(onClick = { revealAccessCode = !revealAccessCode }) {
+                        Icon(
+                            if (revealAccessCode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (revealAccessCode) "Hide access code" else "Show access code"
+                        )
                     }
                 },
                 supportingText = {
-                    if (usesAccessCode) {
-                        Text("Hyphens are optional. You can enter ${normalizedAccessCode.length}/16 characters.")
-                    }
+                    Text("Hyphens are optional. You can enter ${normalizedAccessCode.length}/16 characters.")
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -413,8 +384,9 @@ class SetupWizardActivity : ComponentActivity() {
                 onClick = {
                     isVerifying = true
                     errorMessage = null
-                    val secret = if (usesAccessCode) normalizedAccessCode else normalizedPin
-                    val invitePayload = SecurityUtils.decryptInvitePayload(encryptedInviteKey!!, secret)
+                    val invitePayload = encryptedInviteKey?.let {
+                        SecurityUtils.decryptInvitePayload(it, normalizedAccessCode)
+                    }
                     if (invitePayload != null) {
                         pendingInvitePayload = invitePayload
                         isVerifying = false
@@ -428,11 +400,7 @@ class SetupWizardActivity : ComponentActivity() {
                             finalizeRestore(invitePayload)
                         }
                     } else {
-                        errorMessage = if (usesAccessCode) {
-                            "Incorrect invitation access code. The link could not be unlocked."
-                        } else {
-                            "Incorrect PIN. The link could not be unlocked."
-                        }
+                        errorMessage = "The access code did not unlock this invitation. Check the link and code, then ask the Director for a fresh invitation if needed."
                         isVerifying = false
                     }
                 },
